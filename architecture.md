@@ -8,10 +8,10 @@ Last reviewed against commit `ff0319c` (2026-06-05).
 
 ## System overview
 
-obsidian-second-brain is a cross-CLI **skill** (not a plugin, not a hosted service) that turns any Obsidian vault into an AI-first second brain. One platform-neutral command source compiles to seven AI CLIs - Claude Code, Codex CLI, Gemini CLI, OpenCode, Antigravity, Hermes, Pi - through a build-time adapter pattern. At runtime a slash command reads and writes the user's vault as plain markdown; commands shell out to Python helpers for anything deterministic (vault health, research fetches, codebase scans).
+obsidian-second-brain is a cross-CLI **skill** (not a plugin, not a hosted service) that turns any Obsidian vault into an AI-first second brain. One platform-neutral command source compiles to eight AI CLIs - Claude Code, Codex CLI, Gemini CLI, OpenCode, Antigravity, Hermes, Pi, Grok Bot - through a build-time adapter pattern. At runtime a slash command reads and writes the user's vault as plain markdown; commands shell out to Python helpers for anything deterministic (vault health, research fetches, codebase scans).
 
 - **46 commands**, grouped by `category:` frontmatter: vault 16, thinking 14, research 8, meta 8.
-- **45 commands are cross-platform.** Only `/obsidian-calendar` carries `exclude: [codex-cli, gemini-cli, opencode, hermes, pi, agent-skills]` because it depends on the Google Calendar MCP, so it ships on Claude Code only. The Codex / Gemini / OpenCode / Hermes / Pi / Agent Skills builds ship 45.
+- **45 commands are cross-platform.** Only `/obsidian-calendar` carries `exclude: [codex-cli, gemini-cli, opencode, hermes, pi, agent-skills, grok-bot]` because it depends on the Google Calendar MCP, so it ships on Claude Code only. The Codex / Gemini / OpenCode / Hermes / Pi / Agent Skills / Grok Bot builds ship 45.
 - A research toolkit that is key-less by default (free public sources) and uses Grok + Perplexity + Gemini when keys are present.
 - An opt-in background agent plus optional user-scheduled agents.
 - MIT licensed.
@@ -26,7 +26,7 @@ The AI-first vault rule ties it all together: every note a command writes is des
 
 - `commands/<name>.md` uses Claude Code's slash-command shape and declares `description:`, `category:`, `triggers_en:`, and optional `exclude:` frontmatter.
 - `scripts/build.sh` orchestrates the `adapters/` layer. `bash scripts/build.sh` builds all platforms; `--platform <name>` builds one.
-- The **Claude Code adapter is an identity copy**. The other six adapters translate per platform: `codex-cli`, `hermes`, and `agent-skills` emit **native skills** (one `SKILL.md` per command; `agent-skills` is a single spec-compliant `.agents/skills/` tree that Codex CLI, OpenCode, and Google Antigravity all read, with a shared `obsidian-core` engine skill), `pi` emits a Pi package (`.pi/prompts/` + `.pi/skills/`), and `gemini-cli` / `opencode` emit a dispatcher file (`GEMINI.md` / `AGENTS.md`) with an auto-generated routing table built from each command's `description:`, grouped by `category:` then language, plus the command bodies under `.gemini/` / `.opencode/`.
+- The **Claude Code adapter is an identity copy**. The other seven adapters translate per platform: `codex-cli`, `hermes`, `agent-skills`, and `grok-bot` emit **native skills** (one `SKILL.md` per command; `agent-skills` is a single spec-compliant `.agents/skills/` tree that Codex CLI, OpenCode, and Google Antigravity all read, with a shared `obsidian-core` engine skill; `grok-bot` emits Grok Bot / Sand skills that use the `user-obsidian-second-brain` MCP server for vault I/O), `pi` emits a Pi package (`.pi/prompts/` + `.pi/skills/`), and `gemini-cli` / `opencode` emit a dispatcher file (`GEMINI.md` / `AGENTS.md`) with an auto-generated routing table built from each command's `description:`, grouped by `category:` then language, plus the command bodies under `.gemini/` / `.opencode/`.
 - Claude-specific wording is neutralized for the other CLIs (for example `Read tool` becomes `read files`).
 - Output lands in `dist/<platform>/`, which is gitignored and regenerated - never hand-edited.
 
@@ -56,7 +56,7 @@ obsidian-second-brain/
 |-- commands/            # 45 command .md files (the source)
 |-- references/          # ai-first-rules.md (canonical) + schemas + templates + bases/
 |-- scripts/             # build.sh, lib.sh, vault tooling, research/, architect_scan.py, ...
-|-- adapters/            # lib.sh + {claude-code,codex-cli,gemini-cli,opencode,hermes,pi,agent-skills}/adapter.sh
+|-- adapters/            # lib.sh + {claude-code,codex-cli,gemini-cli,opencode,hermes,pi,agent-skills,grok-bot}/adapter.sh
 |-- hooks/               # validate-ai-first.sh, load_vault_context.py, obsidian-bg-agent.sh
 |-- dist/                # build output per platform (gitignored)
 |-- tests/               # smoke tests + CI fixtures
@@ -91,7 +91,7 @@ graph TD
 
 ## Command categories
 
-Commands are grouped by `category:` frontmatter, not by folder. Counts reflect the current `commands/` source. `/obsidian-calendar` is excluded from the Codex / Gemini / OpenCode / Hermes / Pi / Agent Skills builds (it needs the Google Calendar MCP), so it ships on Claude Code only.
+Commands are grouped by `category:` frontmatter, not by folder. Counts reflect the current `commands/` source. `/obsidian-calendar` is excluded from the Codex / Gemini / OpenCode / Hermes / Pi / Agent Skills / Grok Bot builds (it needs the Google Calendar MCP), so it ships on Claude Code only.
 
 ### Vault (16)
 Vault management: saving, organizing, searching, scheduling, maintaining.

@@ -21,6 +21,7 @@ So platform ownership is open. A platform owner is the person who would notice.
 | claude-code | [@born-in-autumn](https://github.com/born-in-autumn) | [@MPZ-00](https://github.com/MPZ-00) |
 | codex-cli | [@Palo-Alto-AI-Research-Lab](https://github.com/Palo-Alto-AI-Research-Lab) | [@Litash](https://github.com/Litash), [@MPZ-00](https://github.com/MPZ-00) |
 | gemini-cli | unclaimed | [@MPZ-00](https://github.com/MPZ-00) |
+| grok-bot | unclaimed | |
 | hermes | unclaimed | [@Litash](https://github.com/Litash) |
 | opencode | unclaimed | [@Litash](https://github.com/Litash), [@MPZ-00](https://github.com/MPZ-00) |
 | pi | unclaimed | |

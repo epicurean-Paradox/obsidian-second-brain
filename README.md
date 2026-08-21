@@ -1,6 +1,6 @@
 <p align="center">
   <a href="https://github.com/eugeniughelbur/obsidian-second-brain">
-    <img src="media/banner.png" alt="obsidian-second-brain: one brain, seven platforms, 46 commands. A cross-platform skill for Obsidian that runs on Claude Code, Codex, Gemini, OpenCode, Antigravity, Hermes, and Pi." width="100%" />
+    <img src="media/banner.png" alt="obsidian-second-brain: one brain, eight platforms, 46 commands. A cross-platform skill for Obsidian that runs on Claude Code, Codex, Gemini, OpenCode, Antigravity, Hermes, Pi, and Grok Bot." width="100%" />
   </a>
 </p>
 
@@ -12,7 +12,7 @@
 </p>
 
 <p align="center">
-  <strong>One codebase. Seven CLIs. Same brain.</strong>
+  <strong>One codebase. Eight CLIs. Same brain.</strong>
   <br />
   <em>Your vault outlives whichever CLI you switch to.</em>
 </p>
