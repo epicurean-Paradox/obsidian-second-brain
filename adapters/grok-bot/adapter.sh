@@ -195,9 +195,13 @@ The shared support tree the other obsidian-second-brain skills depend on. It is
 not a task skill - do not run it on its own.
 
 - `references/` - shared specs. `references/ai-first-rules.md` is the canonical,
-  non-negotiable vault-write spec. Every command skill embeds it inline, so an
-  unreachable path here does not break the rule - but it should still be present
-  for commands that need vault-schema.md or folder-map.md.
+  non-negotiable vault-write spec; `vault-schema.md`, `folder-map.md`, and
+  `freshness-policy.md` back the other skills. These paths are relative to the
+  install root, which is load-bearing: if one does not resolve from your working
+  directory, search upward for it, and say so before writing if you still cannot
+  read it. Every command skill also embeds the AI-first spec inline, so the rule
+  survives an unreachable path - but an unreachable path must never pass in
+  silence.
 - `scripts/` - Python helpers for the research toolkit (research, research-deep,
   x-read, x-pulse, youtube, podcast, notebooklm, obsidian-architect). The command
   skills invoke them as `uv run -m scripts.research.<name> ...` or
