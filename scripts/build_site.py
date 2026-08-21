@@ -219,12 +219,12 @@ def build(out: Path, cmds: list[dict]) -> dict[str, str]:
         # of the stars outrank this one on those queries purely by saying the
         # problem out loud. Same claims either way; only the ordering changed.
         "index.html": page(
-            "Persistent memory for Claude Code, in your Obsidian vault "
-            "- obsidian-second-brain",
-            "Give Claude Code and six other CLI agents long-term memory across "
-            "sessions, stored as plain markdown in your own Obsidian vault. Stop "
-            "re-explaining your projects, decisions and people every time. 46 "
-            "commands, with plain-language triggers in English, Spanish, Portuguese "
+            "AI second brain for Obsidian - persistent memory for "
+            "Claude Code and Grok Bot",
+            "Persistent memory for Claude Code, Grok Bot, and 7 other agents - stored "
+            "as plain markdown in your Obsidian vault. Stop "
+            "re-explaining your projects, decisions and people every session. 46 "
+            "commands with triggers in English, Spanish, Portuguese "
             "and Simplified Chinese.",
             render_index(cmds),
         ),

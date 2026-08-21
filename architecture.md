@@ -73,7 +73,7 @@ graph TD
   REF["references/<br/>specs (ai-first-rules.md = canonical)"]
   CMD["commands/<br/>45 .md, platform-neutral source"]
   SCR["scripts/<br/>engine + research toolkit + build.sh"]
-  ADP["adapters/<br/>lib.sh + 7 platform adapters"]
+  ADP["adapters/<br/>lib.sh + 8 platform adapters"]
   HK["hooks/<br/>validate-ai-first, context loader, bg-agent"]
   DIST["dist/&lt;platform&gt;/<br/>build output (gitignored)"]
   VAULT["User's Obsidian vault<br/>(AI-first markdown notes)"]
