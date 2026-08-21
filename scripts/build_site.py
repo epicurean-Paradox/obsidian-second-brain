@@ -153,8 +153,8 @@ def render_index(cmds: list[dict]) -> str:
     parts = [
         "<h1>obsidian-second-brain</h1>",
         f'<p class="lede">Your AI agent starts every session knowing nothing about '
-        f"you. These {len(cmds)} commands give it long-term memory across "
-        "sessions, kept as plain markdown in your own Obsidian vault. Every one works "
+        f"you. These {len(cmds)} commands give Claude, Grok Bot, and other agents long-term memory across "
+        "sessions, kept as plain markdown in your Obsidian vault. Every one works "
         "by plain language, in English, Spanish, Portuguese or Simplified Chinese.</p>",
         '<input type="search" id="q" placeholder="Filter commands..." '
         'aria-label="Filter commands">',
