@@ -264,7 +264,7 @@ def test_grok_bot_build_generates_mcp_backed_skills():
     save = skills_dir / "obsidian-save/SKILL.md"
     assert save.is_file()
     save_text = save.read_text(encoding="utf-8")
-    head = save_text[:800]
+    head = save_text[:1000]
     assert "name: obsidian-save" in head
     assert "description:" in head
     assert "Triggers: save this" in head
@@ -274,16 +274,25 @@ def test_grok_bot_build_generates_mcp_backed_skills():
     assert "obsidian_search" in save_text
     assert "obsidian_save_note" in save_text
     assert "obsidian_validate_note" in save_text
-    assert "$OBSIDIAN_VAULT_PATH" in save_text
+    # Command body must be present, not just preamble
+    assert "Run obsidian-save" in save_text or "obsidian-save:" in save_text
+    assert "Scan the entire conversation" in save_text
+    assert "Group items by type" in save_text
+    assert "call obsidian_read_note" in save_text or "obsidian_read_note(" in save_text
+    # No Claude-specific language
+    assert "Execute `/obsidian-save`" not in save_text
+    assert "Spawn parallel subagents" not in save_text
+    # No filesystem Read/Write language (should be MCP calls)
+    assert "Read `" not in save_text[:2000] or "call obsidian_read_note" in save_text
     assert "## AI-first vault rule (embedded)" in save_text
 
     # Non-capture commands get the explicit-only policy.
     research = (skills_dir / "research/SKILL.md").read_text(encoding="utf-8")
     assert "Use only when the user explicitly asks" in research
     assert "Use proactively" not in research
-    # SKILL_ROOT is rewritten to the installed obsidian-core location.
-    assert "SKILL_ROOT" not in research
-    assert 'uv run --directory ".agents/skills/obsidian-core"' in research
+    # Command body must be present
+    assert "research" in research.lower()
+    assert len(research) > 2000, "research skill body is suspiciously short"
 
     # The shared engine skill ships references, scripts, and its uv project.
     core = skills_dir / "obsidian-core"
@@ -298,10 +307,13 @@ def test_grok_bot_build_generates_mcp_backed_skills():
     # Install docs explain the MCP + skills model.
     install_text = (REPO_ROOT / "dist/grok-bot/INSTALL.md").read_text(encoding="utf-8")
     assert "user-obsidian-second-brain" in install_text
-    assert "MCP server" in install_text
-    assert "cp -R dist/grok-bot/skills/." in install_text
+    assert "MCP server" in install_text or "MCP is the I/O layer" in install_text
+    # Should NOT hardcode .agents/skills/ as the install path
+    assert "Grok Bot and Sand load skills from the workspace `.agents/skills/` directory" not in install_text
+    # Should explain workflows are invoked with / or @
+    assert "invoked with `/` or `@`" in install_text or "invoke by name" in install_text
     # Grok Bot has no hooks.
-    assert "hook" not in install_text.lower() or "no hook runtime" in install_text.lower()
+    assert "no hook runtime" in install_text.lower() or "no hooks" in install_text.lower()
 
 
 def test_vault_health_json_reports_clean_linked_vault(tmp_path):

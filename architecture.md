@@ -22,7 +22,7 @@ The AI-first vault rule ties it all together: every note a command writes is des
 
 ## The adapter pattern (the core idea)
 
-`commands/` is the single source of truth. The build compiles it per platform instead of maintaining seven command sets.
+`commands/` is the single source of truth. The build compiles it per platform instead of maintaining eight command sets.
 
 - `commands/<name>.md` uses Claude Code's slash-command shape and declares `description:`, `category:`, `triggers_en:`, and optional `exclude:` frontmatter.
 - `scripts/build.sh` orchestrates the `adapters/` layer. `bash scripts/build.sh` builds all platforms; `--platform <name>` builds one.
@@ -73,7 +73,7 @@ graph TD
   REF["references/<br/>specs (ai-first-rules.md = canonical)"]
   CMD["commands/<br/>45 .md, platform-neutral source"]
   SCR["scripts/<br/>engine + research toolkit + build.sh"]
-  ADP["adapters/<br/>lib.sh + 6 platform adapters"]
+  ADP["adapters/<br/>lib.sh + 7 platform adapters"]
   HK["hooks/<br/>validate-ai-first, context loader, bg-agent"]
   DIST["dist/&lt;platform&gt;/<br/>build output (gitignored)"]
   VAULT["User's Obsidian vault<br/>(AI-first markdown notes)"]

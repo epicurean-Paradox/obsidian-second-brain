@@ -1,6 +1,6 @@
 # Platform owners
 
-Seven builds are compiled from one source tree. One person maintains all seven
+Eight builds are compiled from one source tree. One person maintains all eight
 and can only actually run two of them.
 
 That is not a staffing complaint, it is the root cause of a specific class of

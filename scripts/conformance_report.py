@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Generate the public per-platform conformance board.
 
-The repo claims seven platform builds. Until now nothing verified that claim in
+The repo claims eight platform builds. Until now nothing verified that claim in
 a way a reader could check, and nothing verified it in a way the maintainer
 could feel: they use Claude Code, whose adapter is an identity copy, so a break
 in any other build was invisible in daily use and invisible in CI.
@@ -43,6 +43,7 @@ PLATFORM_LABEL = {
     "gemini-cli": "Gemini CLI",
     "opencode": "OpenCode",
     "agent-skills": "Agent Skills",
+    "grok-bot": "Grok Bot",
     "hermes": "Hermes",
     "pi": "Pi",
 }
