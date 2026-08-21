@@ -221,7 +221,7 @@ def build(out: Path, cmds: list[dict]) -> dict[str, str]:
         "index.html": page(
             "AI second brain for Obsidian - persistent memory for "
             "Claude Code and Grok Bot",
-            "Persistent memory for Claude Code, Grok Bot, and 7 other agents - stored "
+            "Persistent memory for Claude Code, Grok Bot, and 6 other agents - stored "
             "as plain markdown in your Obsidian vault. Stop "
             "re-explaining your projects, decisions and people every session. 46 "
             "commands with triggers in English, Spanish, Portuguese "
