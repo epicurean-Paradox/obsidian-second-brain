@@ -84,11 +84,22 @@ Each pin FAILS on upstream v0.14.0 by construction and must stay green here:
    semantic leaks) report UNAVAILABLE, which the gate treats as a FAILURE** --
    so the autonomous write path is still closed, exactly as ADR 0001 intends:
    the pipeline is a prerequisite, and "cannot check" may never read as "pass".
-4. **NEXT** - Bedrock + pgvector re-route. This is what opens the write path:
-   `_bedrock_available()` in `owasp_pipeline.py` is the single switch and
-   `check_llm_backed()` is the function to implement (Haiku per ADR 0001
-   section 2 model tiering). Also replaces the `triage_links` stub and the
-   local-only embed path.
+4. **DONE (Bedrock half)** - `scripts/bedrock_provider.py` is the single egress
+   path; `check_llm_backed()` now really calls Haiku and parses three verdict
+   lines, where a missing, unrecognized or unparseable verdict is a FINDING (a
+   check that did not run may never read as a pass). The `triage_links` stub and
+   the local-only embed path are replaced. **The write path opens only once the
+   operator points `OBSIDIAN_BEDROCK_*` + `AWS_REGION` at an account with
+   Bedrock access** - the code no longer blocks it, configuration does.
+   Dependency debt from step 1 also cleared here: `pyproject.toml` still
+   declared `openai`, `google-genai`, `google-api-python-client`,
+   `youtube-transcript-api` and `feedparser` for the deleted research/eval
+   stack, so installing a "Bedrock-only" fork still pulled every vendor client
+   it exists to avoid.
+5. **REMAINING** - pgvector store for the embedding index (ADR 0001 section 2:
+   pgvector on an existing operator-managed RDS). Needs a real database plus a
+   migration, so it is deliberately its own change; embeddings currently
+   compute via Bedrock and are consumed in-process.
 
 ## Re-audit tax
 

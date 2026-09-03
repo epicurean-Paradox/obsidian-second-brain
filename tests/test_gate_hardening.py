@@ -86,11 +86,22 @@ def test_no_launchd_poller_artifacts():
     assert plists == [], f"launchd artifacts present: {plists}"
 
 
-def test_triage_llm_path_raises_until_bedrock():
+def test_triage_llm_path_never_silently_defaults():
+    """No silent LLM path: with Bedrock unconfigured, ask_claude RAISES.
+
+    Superseded mechanism, same intent as the original step-1 pin. That pin
+    asserted a NotImplementedError stub; the Bedrock provider replaced the
+    stub, so the durable property is asserted instead -- an unavailable
+    classifier must fail loudly, never return a plausible KEEP verdict that
+    quietly retains broken links forever.
+    """
     import importlib.util
+    import os
     import sys
 
-    sys.path.insert(0, str(REPO / "scripts"))  # triage_links imports note_io
+    sys.path.insert(0, str(REPO / "scripts"))
+    for var in ("OBSIDIAN_BEDROCK_MODEL_ID", "OBSIDIAN_BEDROCK_GUARD_MODEL_ID"):
+        os.environ.pop(var, None)
     spec = importlib.util.spec_from_file_location(
         "triage_links", REPO / "scripts" / "triage_links.py"
     )
@@ -98,7 +109,7 @@ def test_triage_llm_path_raises_until_bedrock():
     spec.loader.exec_module(mod)
     try:
         mod.ask_claude("note", "line", "link", "key")
-    except NotImplementedError:
+    except RuntimeError:
         return
     raise AssertionError("ask_claude did not raise: a silent LLM path exists")
 

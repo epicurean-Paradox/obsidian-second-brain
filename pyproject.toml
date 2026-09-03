@@ -1,16 +1,18 @@
 [project]
-name = "obsidian-second-brain-research"
+name = "obsidian-second-brain-fork"
 version = "0.14.0"
-description = "Research toolkit for obsidian-second-brain - Grok, Perplexity, Gemini, and YouTube research that saves to your vault"
+description = "Hardened fork of obsidian-second-brain: vault synthesis with Bedrock-only model egress and a fail-closed pre-write gate"
 requires-python = ">=3.10"
+# Dependency set follows the strip (FORK_HARDENING.md). The research/eval
+# stack is deleted, so its vendor SDKs are gone too: leaving openai,
+# google-genai, google-api-python-client, youtube-transcript-api and feedparser
+# declared here meant installing a "Bedrock-only" fork still pulled every
+# vendor client it exists to avoid -- an egress posture contradicted by its own
+# lockfile. boto3 is the single model-egress dependency (Bedrock).
 dependencies = [
-    "openai>=1.40.0",
+    "boto3>=1.34.0",
     "requests>=2.32.0",
     "python-dotenv>=1.0.0",
-    "youtube-transcript-api>=0.6.2",
-    "google-api-python-client>=2.110.0",
-    "google-genai>=2.3.0",
-    "feedparser>=6.0.10",
     "pyyaml>=6",
 ]
 
