@@ -18,6 +18,8 @@ import stat as stat_mod
 import tempfile
 from pathlib import Path
 
+from vault_guard import guard_write
+
 
 def read_exact(path: Path) -> str | None:
     """Decode the file as strict UTF-8, or return None if it is not valid UTF-8.
@@ -40,6 +42,7 @@ def write_exact(path: Path, text: str) -> None:
     exactly as it was. The target's permission bits are carried over so a rewrite never
     quietly changes a note's mode.
     """
+    guard_write(Path(path), text)
     data = text.encode("utf-8")
     directory = path.parent
     try:

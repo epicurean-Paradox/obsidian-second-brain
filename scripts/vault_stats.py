@@ -26,6 +26,8 @@ from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
+from note_io import write_exact
+
 FRONTMATTER = re.compile(r"^---\s*\n(.*?)\n---\s*\n", re.DOTALL)
 
 # Folders we don't want in the count (templates, references, attachments, etc.).
@@ -235,7 +237,7 @@ def update_index(vault: Path, block: str) -> bool:
         # Append block if markers are absent (first run on a vault that doesn't yet have them)
         new_text = text.rstrip() + "\n\n" + block + "\n"
     if new_text != text:
-        index.write_text(new_text, encoding="utf-8")
+        write_exact(index, new_text)
         return True
     return False
 

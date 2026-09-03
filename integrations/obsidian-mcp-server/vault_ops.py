@@ -23,6 +23,9 @@ from datetime import datetime
 from pathlib import Path, PurePosixPath
 from typing import Any, Dict, List, Optional
 
+sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+from vault_guard import guard_write  # noqa: E402  (enforce layer, fork ADR 0001 s3)
+
 _VAULT_ENV = "OBSIDIAN_VAULT_PATH"
 
 # Notes added via the connector land here, separate from hand-authored notes.
@@ -37,9 +40,21 @@ _NOTES_DIR = "Inbox"
 # Mirrors scripts/vault_scan.BASE_EXCLUDE_DIRS. Kept as a literal because this
 # module ships standalone in the MCP server and must not import from scripts/.
 # tests/test_exclude_policy.py pins the two together so they cannot drift again.
-_SKIP_DIRS = {".obsidian", ".git", ".trash", "_trash", ".claude", "_export",
-              "templates", "node_modules", ".agents", ".codex", ".gemini",
-              ".opencode", "__pycache__"}
+_SKIP_DIRS = {
+    ".obsidian",
+    ".git",
+    ".trash",
+    "_trash",
+    ".claude",
+    "_export",
+    "templates",
+    "node_modules",
+    ".agents",
+    ".codex",
+    ".gemini",
+    ".opencode",
+    "__pycache__",
+}
 
 # Directories no write tool may touch. `raw/` holds original sources the skill
 # treats as immutable, and `templates` needs to match the conventional capital-T
@@ -88,7 +103,7 @@ def _query_terms(query: str, *, drop_stopwords: bool = True) -> List[str]:
         if len(run) == 1:
             terms.append(run)
         else:
-            terms.extend(run[i:i + 2] for i in range(len(run) - 1))
+            terms.extend(run[i : i + 2] for i in range(len(run) - 1))
     non_cjk = _CJK_RE.sub(" ", q)
     for t in re.split(r"\W+", non_cjk):
         if len(t) > 2 and (not drop_stopwords or t not in _STOPWORDS):
@@ -100,6 +115,7 @@ def _query_terms(query: str, *, drop_stopwords: bool = True) -> List[str]:
             seen.add(t)
             out.append(t)
     return out
+
 
 _SEARCH_DEWEIGHT_PREFIXES = ("raw/",)
 _SEARCH_DEWEIGHT_FILES = {"log.md"}
@@ -121,8 +137,18 @@ _LOG_FOLDERS = {"logs", "daily", "dev logs"}
 #   query itself asks about the present (current/now/still/today/latest)
 # - a status fade: notes whose OWN metadata says they no longer hold
 #   (superseded/declined/archived/parked/on-hold...) step back
-_STALE_STATUSES = {"superseded", "declined", "rejected", "archived", "obsolete",
-                   "cancelled", "closed", "parked", "inactive", "done"}
+_STALE_STATUSES = {
+    "superseded",
+    "declined",
+    "rejected",
+    "archived",
+    "obsolete",
+    "cancelled",
+    "closed",
+    "parked",
+    "inactive",
+    "done",
+}
 _STATUS_RE = re.compile(r"(?m)^status:\s*['\"]?([A-Za-z0-9_-]+)")
 # The supersedes REVERSE edge (fork-insights round 2, the local-first memory
 # fork): when ADR A declares `supersedes: "[[B]]"`, B should fade even if B's
@@ -197,6 +223,8 @@ def _freshness_weight(age_days: float, current_intent: bool) -> float:
     if current_intent:
         return 0.6 + 0.4 * math.exp(-age_days / 130.0)
     return 0.92 + 0.08 * math.exp(-age_days / 270.0)
+
+
 _TYPE_RE = re.compile(r"(?m)^type:\s*[\"\']?([A-Za-z0-9_-]+)")
 
 
@@ -211,6 +239,7 @@ def _type_weight(rel: str, text: str) -> float:
     if not ntype and any(part.lower() in _LOG_FOLDERS for part in rel.split("/")[:-1]):
         return _SEARCH_LOG_WEIGHT
     return 1.0
+
 
 # BM25-style sublinear-TF + length normalization. Env-toggle for A/B (0 = old raw counts).
 _SEARCH_LENGTH_NORM = os.environ.get("OBSIDIAN_SEARCH_LENGTHNORM", "1") != "0"
@@ -271,12 +300,15 @@ _READ_CAP = 20_000
 # memory, so changing the preferred label must not make years of Claude-authored
 # notes fail validation when Codex, Gemini, Hermes, or another agent reads them.
 _PREAMBLE_HEADING = "For future agent"
-_PREAMBLE_RE = re.compile(
-    r"(?mi)^##[ \t]+For future (?:agent|AI|Claude|Codex)[ \t]*$"
-)
+_PREAMBLE_RE = re.compile(r"(?mi)^##[ \t]+For future (?:agent|AI|Claude|Codex)[ \t]*$")
 _VALIDATION_EXEMPT_ROOT_FILES = {
-    "_CLAUDE.md", "AGENTS.md", "Home.md", "index.md", "log.md",
-    "catchup.md", "INSTALL.md",
+    "_CLAUDE.md",
+    "AGENTS.md",
+    "Home.md",
+    "index.md",
+    "log.md",
+    "catchup.md",
+    "INSTALL.md",
 }
 
 
@@ -314,9 +346,7 @@ def resolve_vault() -> Path:
     that configured the vault in .env got a non-functional MCP server."""
     raw = os.environ.get(_VAULT_ENV, "").strip() or _env_from_file(_VAULT_ENV)
     if not raw:
-        raise RuntimeError(
-            f"{_VAULT_ENV} is not set (checked the environment and {_ENV_FILE})"
-        )
+        raise RuntimeError(f"{_VAULT_ENV} is not set (checked the environment and {_ENV_FILE})")
     vault = Path(raw).expanduser().resolve()
     if not vault.is_dir():
         raise RuntimeError(f"vault path does not exist: {vault}")
@@ -451,8 +481,14 @@ def _scan_entry(md: Path, vault: Path):
     sm = _STATUS_RE.search(text[:400])
     if sm and sm.group(1).lower() in _STALE_STATUSES:
         weight *= _STATUS_FADE
-    entry = (low, md.stem.lower(), 1.0 + math.log1p(len(low) / 1000.0), weight,
-             _note_age_days(text, md), text)
+    entry = (
+        low,
+        md.stem.lower(),
+        1.0 + math.log1p(len(low) / 1000.0),
+        weight,
+        _note_age_days(text, md),
+        text,
+    )
 
     if hit is not None:
         _scan_cache_chars -= len(hit[1][0])
@@ -491,7 +527,7 @@ def index_coverage(vault: Path) -> Dict[str, Any]:
     if not index_path.exists():
         return {"index": False, "scanned": 0, "indexed": 0, "missing": 0, "pct_missing": 0.0}
     try:
-        notes = (_load_index_cached(index_path).get("notes") or {})
+        notes = _load_index_cached(index_path).get("notes") or {}
     except Exception:
         return {"index": False, "scanned": 0, "indexed": 0, "missing": 0, "pct_missing": 0.0}
     scanned = {md.relative_to(vault).as_posix() for md in _iter_notes(vault)}
@@ -524,14 +560,18 @@ def _warn_if_index_stale(vault: Path, scanned: List[str], notes: Dict[str, Any])
         f"warning: the semantic index covers {len(notes)} of {len(scanned)} notes; "
         f"{missing} ({pct:.0f}%) are missing and will not be found by meaning, only "
         f"by literal word match. Rebuild: uv run python scripts/eval/semantic_search.py "
-        f"--path \"<vault>\" --build (incremental - only new and changed notes re-embed).",
+        f'--path "<vault>" --build (incremental - only new and changed notes re-embed).',
         file=sys.stderr,
     )
 
 
 def _semantic_fuse(
-    query: str, lexical: List[Dict[str, Any]], vault: Path, limit: int,
-    enabled: Optional[bool] = None, scanned: Optional[List[str]] = None,
+    query: str,
+    lexical: List[Dict[str, Any]],
+    vault: Path,
+    limit: int,
+    enabled: Optional[bool] = None,
+    scanned: Optional[List[str]] = None,
 ) -> Optional[List[Dict[str, Any]]]:
     """Fuse lexical results with local semantic ranking via RRF. Returns None (so the
     caller uses pure lexical) whenever semantic is unavailable or anything fails.
@@ -557,6 +597,7 @@ def _semantic_fuse(
         qunit = _unit(qvec)
         if not qunit:
             return None
+
         # Best-chunk scoring (fix 13/24): a note is as relevant as its most
         # relevant section, not the average of everything it contains.
         def _note_score(rel, n):
@@ -569,11 +610,17 @@ def _semantic_fuse(
             return max((_dot(qunit, v) for v in units), default=0.0)
 
         sem = sorted(
-            ({"path": rel, "title": n.get("title", rel), "score": _note_score(rel, n)}
-             for rel, n in notes.items() if n.get("_unit")),
-            key=lambda r: r["score"], reverse=True,
+            (
+                {"path": rel, "title": n.get("title", rel), "score": _note_score(rel, n)}
+                for rel, n in notes.items()
+                if n.get("_unit")
+            ),
+            key=lambda r: r["score"],
+            reverse=True,
         )[:_FUSE_DEPTH]
-        lex_rank = {r["path"]: i for i, r in enumerate(lexical[:min(_FUSE_DEPTH, _FUSE_LEX_DEPTH)])}
+        lex_rank = {
+            r["path"]: i for i, r in enumerate(lexical[: min(_FUSE_DEPTH, _FUSE_LEX_DEPTH)])
+        }
         sem_rank = {r["path"]: i for i, r in enumerate(sem)}
         snippet = {r["path"]: r.get("snippet", "") for r in lexical}
         title = {r["path"]: r["title"] for r in lexical}
@@ -581,9 +628,12 @@ def _semantic_fuse(
             title.setdefault(r["path"], r["title"])
         fused = []
         for p in set(lex_rank) | set(sem_rank):
-            s = (1.0 / (_RRF_K + lex_rank[p]) if p in lex_rank else 0.0) \
-                + (_RRF_SEMANTIC_WEIGHT / (_RRF_K + sem_rank[p]) if p in sem_rank else 0.0)
-            fused.append({"path": p, "title": title.get(p, p), "snippet": snippet.get(p, ""), "score": s})
+            s = (1.0 / (_RRF_K + lex_rank[p]) if p in lex_rank else 0.0) + (
+                _RRF_SEMANTIC_WEIGHT / (_RRF_K + sem_rank[p]) if p in sem_rank else 0.0
+            )
+            fused.append(
+                {"path": p, "title": title.get(p, p), "snippet": snippet.get(p, ""), "score": s}
+            )
         fused.sort(key=lambda r: r["score"], reverse=True)
         out = fused[:limit]
         for r in out:
@@ -646,8 +696,10 @@ def search(query: str, *, limit: int = 6, semantic: Optional[bool] = None) -> Li
             bc = low.count(t)
             if bc:
                 body_score += 1.0 + math.log1p(bc)
-        score = title_score + (body_score / length_norm) if _SEARCH_LENGTH_NORM else float(
-            sum(low.count(t) + 5 * title_low.count(t) for t in terms)
+        score = (
+            title_score + (body_score / length_norm)
+            if _SEARCH_LENGTH_NORM
+            else float(sum(low.count(t) + 5 * title_low.count(t) for t in terms))
         )
         if score:
             rel = md.relative_to(vault).as_posix()
@@ -709,7 +761,7 @@ def read_note(
     if text is None:
         return {"error": f"not found: {rel}"}
     total = len(text)
-    content = text[offset:offset + limit]
+    content = text[offset : offset + limit]
     end = offset + len(content)
     return {
         "path": rel,
@@ -737,7 +789,7 @@ def _prepare_note_content(content: str, summary: Optional[str] = None) -> str:
         if not match:
             break
         had_heading = True
-        text = text[match.end():].lstrip("\r\n \t")
+        text = text[match.end() :].lstrip("\r\n \t")
 
     if summary is not None:
         preamble = summary.strip()
@@ -1252,8 +1304,10 @@ def _write_atomic(path: Path, text: str) -> None:
     a crash mid-write would otherwise leave a half-written note with no backup.
     Mirrors scripts/note_io.write_exact, which the vault scripts already use.
     """
+    guard_write(Path(path), text)
     import os as _os
     import tempfile
+
     keep_mode = None
     try:
         keep_mode = path.stat().st_mode
@@ -1366,9 +1420,7 @@ def _frontmatter_aliases(text: str) -> List[str]:
             collecting = True
         elif raw.startswith("[") and raw.endswith("]"):
             aliases.extend(
-                item.strip().strip("'\"")
-                for item in raw[1:-1].split(",")
-                if item.strip()
+                item.strip().strip("'\"") for item in raw[1:-1].split(",") if item.strip()
             )
         else:
             aliases.append(raw.strip("'\""))

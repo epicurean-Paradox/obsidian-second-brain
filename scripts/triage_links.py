@@ -116,14 +116,12 @@ def apply_verdicts(vault, verdicts, create_cap):
             if not safe_stub.exists():
                 safe_stub.parent.mkdir(parents=True, exist_ok=True)
                 today = date.today().isoformat()
-                safe_stub.write_text(
-                    f"---\ntype: stub\ndate: {today}\ntags: [stub]\nai-first: true\n---\n\n"
+                write_exact(safe_stub, f"---\ntype: stub\ndate: {today}\ntags: [stub]\nai-first: true\n---\n\n"
                     f"## For future agent\n\nStub created by link triage on {today}. "
                     f"`{link}` was referenced across the vault but had no note. "
                     f"Classify it (person, project, concept, decision, etc.), fill it from "
                     f"context, set the real `type:`, and move it to the matching folder when "
-                    f"you next encounter it.\n",
-                    encoding="utf-8")
+                    f"you next encounter it.\n")
                 created += 1
     return deleted, created, skipped
 
