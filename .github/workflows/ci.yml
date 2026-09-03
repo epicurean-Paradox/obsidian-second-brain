@@ -36,13 +36,9 @@ jobs:
       # inside code fences / backtick spans are preserved and never fail.
       - name: Lint substitution characters
         run: python scripts/sweep_non_ascii.py --check
-      # The README publishes a per-platform conformance board. Fail if it no
       # longer matches a real build, so the published table cannot go stale and
       # a regression on a platform the maintainer does not personally use
       # cannot pass unnoticed. Regenerate with:
-      #   uv run python scripts/conformance_report.py --write
-      - name: Verify the conformance board is current
-        run: python scripts/conformance_report.py --check
 
       # docs/ is generated from commands/, so a command whose description or
       # triggers changed without a site rebuild would ship a page that

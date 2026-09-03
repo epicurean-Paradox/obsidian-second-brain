@@ -10,10 +10,8 @@ tallies the verdict. Report-only by default: it decides, it does not edit.
 Needs ANTHROPIC_API_KEY in the environment.
 """
 import argparse
-import json
 import os
 import re
-import urllib.request
 from collections import Counter
 from datetime import date
 from pathlib import Path
@@ -41,23 +39,15 @@ Reply as: WORD - up to 6 word reason"""
 
 
 def ask_claude(note, line, link, key):
-    body = json.dumps({
-        "model": MODEL,
-        "max_tokens": 40,
-        "messages": [{"role": "user",
-                      "content": PROMPT.format(note=note, line=line[:300], link=link)}],
-    }).encode()
-    req = urllib.request.Request(
-        "https://api.anthropic.com/v1/messages", data=body,
-        headers={"x-api-key": key, "anthropic-version": "2023-06-01",
-                 "content-type": "application/json"})
-    with urllib.request.urlopen(req, timeout=30) as r:
-        out = json.load(r)
-    text = out["content"][0]["text"].strip()
-    verdict = text.split()[0].upper().strip(":-")
-    if verdict not in {"KEEP", "CREATE", "DELETE"}:
-        verdict = "KEEP"
-    return verdict, text
+    # gate-hardening: the upstream implementation POSTed the prompt to the
+    # direct vendor API (api.anthropic.com) under a personal key. This fork's
+    # egress policy is Bedrock-only (fork ADR 0001 section 2); the Bedrock
+    # provider lands in the re-route PR. Until then the LLM triage path is
+    # UNAVAILABLE -- fail hard rather than silently degrade or leak egress.
+    raise NotImplementedError(
+        "LLM link triage is disabled in the hardened fork: direct vendor API "
+        "egress is stripped; the Bedrock provider is pending (fork ADR 0001)."
+    )
 
 
 def line_for(vault, rel, link):

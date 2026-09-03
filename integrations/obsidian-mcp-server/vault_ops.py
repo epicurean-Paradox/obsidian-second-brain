@@ -16,6 +16,7 @@ import os
 import re
 import sys
 import unicodedata
+import urllib.parse
 import urllib.request
 from collections import OrderedDict
 from datetime import datetime
@@ -368,17 +369,18 @@ def _embed_query(text: str, model: Optional[str] = None) -> Optional[List[float]
     back to lexical. Supports Ollama (default) and OpenAI-compatible endpoints.
     model: pass the INDEX's model so query and note vectors share one space."""
     model = model or _EMBED_MODEL
-    if _EMBED_BACKEND == "openai":
-        headers = {"Content-Type": "application/json"}
-        if _EMBED_KEY:
-            headers["Authorization"] = f"Bearer {_EMBED_KEY}"
-        body = json.dumps({"model": model, "input": text[:1200]}).encode()
-        url = f"{_EMBED_URL}/v1/embeddings"
-    else:
-        body = json.dumps({"model": model, "prompt": text[:1200], "keep_alive": "15m"}).encode()
-        url = f"{_EMBED_URL}/api/embeddings"
-    req = urllib.request.Request(url, data=body, headers=headers if _EMBED_BACKEND == "openai"
-                                else {"Content-Type": "application/json"})
+    # gate-hardening: the remote "openai" embed backend is STRIPPED (fork ADR
+    # 0001 section 2 -- embeddings move to Bedrock + pgvector in the re-route
+    # PR). Until then only a local runtime is accepted, and never a non-local
+    # URL: semantic search falls back to lexical rather than egress.
+    if _EMBED_BACKEND != "ollama":
+        return None
+    host = urllib.parse.urlsplit(_EMBED_URL).hostname or ""
+    if host not in ("localhost", "127.0.0.1", "::1"):
+        return None
+    body = json.dumps({"model": model, "prompt": text[:1200], "keep_alive": "15m"}).encode()
+    url = f"{_EMBED_URL}/api/embeddings"
+    req = urllib.request.Request(url, data=body, headers={"Content-Type": "application/json"})
     with urllib.request.urlopen(req, timeout=10) as r:
         data = json.loads(r.read())
     if data.get("embedding"):

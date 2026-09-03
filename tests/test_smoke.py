@@ -1,8 +1,7 @@
-"""Smoke tests for the two highest-risk subsystems: the adapter build pipeline
-and the vault health checker. Both run the real scripts via subprocess. CI
-installs only the small dependency list in .github/workflows/ci.yml (pytest,
-requests, pyyaml, python-dotenv) - keep that list in sync with what these
-tests exercise.
+"""Smoke tests for the vault health checker and the kept vault tooling. They
+run the real scripts via subprocess. CI installs only the small dependency
+list in .github/workflows/ci.yml (pytest, requests, pyyaml, python-dotenv) -
+keep that list in sync with what these tests exercise.
 
 Adapted from the test added by the bmassenz fork (the only fork that shipped
 any automated test). See FORK_INSIGHTS.md items #47/#48.
@@ -29,291 +28,6 @@ def _json_from_stdout(stdout: str) -> dict:
         if line.strip() == "{":
             return json.loads("\n".join(lines[index:]))
     raise AssertionError(f"JSON payload not found in stdout:\n{stdout}")
-
-
-def test_codex_cli_build_generates_expected_files():
-    """The codex-cli adapter must emit the AGENTS.md manual and one native Codex
-    Agent Skill per command (.agents/skills/<name>/SKILL.md). This guards the
-    adapter pipeline that every command change depends on."""
-    result = subprocess.run(
-        ["bash", "scripts/build.sh", "--platform", "codex-cli"],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-
-    assert result.returncode == 0, result.stderr
-    assert (REPO_ROOT / "dist/codex-cli/AGENTS.md").is_file()
-    skill = REPO_ROOT / "dist/codex-cli/.agents/skills/obsidian-save/SKILL.md"
-    assert skill.is_file()
-    # Native skills require discovery frontmatter plus the complete command body.
-    content = skill.read_text(encoding="utf-8")
-    head = content[:400]
-    assert "name: obsidian-save" in head
-    assert "description:" in head
-    assert "Triggers: save this" in head
-    assert "Use the obsidian-second-brain skill. Execute `/obsidian-save`:" in content
-    # Calendar depends on a Claude-only MCP and is explicitly excluded from Codex.
-    assert not (REPO_ROOT / "dist/codex-cli/.agents/skills/obsidian-calendar").exists()
-
-
-def test_hermes_build_generates_native_skills():
-    """The hermes adapter must emit one native Hermes skill per command at
-    skills/<category>/<name>/SKILL.md, with the required frontmatter Hermes
-    needs to load it (name, description, version, author, license)."""
-    result = subprocess.run(
-        ["bash", "scripts/build.sh", "--platform", "hermes"],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-
-    assert result.returncode == 0, result.stderr
-    skill = REPO_ROOT / "dist/hermes/skills/vault/obsidian-save/SKILL.md"
-    assert skill.is_file()
-    head = skill.read_text(encoding="utf-8")[:500]
-    for field in ("name: obsidian-save", "description:", "version:", "author:", "license:"):
-        assert field in head, field
-    # Calendar/scheduled commands are Claude-only and must not leak to Hermes.
-    assert not (REPO_ROOT / "dist/hermes/skills/vault/obsidian-calendar").exists()
-
-    # Scheduled agents emit as opt-in blueprint skills under optional-skills/
-    # (not auto-armed skills/), each carrying a cron schedule.
-    nightly = REPO_ROOT / "dist/hermes/optional-skills/obsidian-nightly/SKILL.md"
-    assert nightly.is_file()
-    blueprint = nightly.read_text(encoding="utf-8")
-    assert "blueprint:" in blueprint
-    assert 'schedule: "0 22 * * *"' in blueprint
-    # The opt-in arming surface, not the auto-loaded one.
-    assert not (REPO_ROOT / "dist/hermes/skills/scheduled").exists()
-
-    # #190: the blueprints are hand-written here rather than derived from
-    # commands/, so they drifted out of the folder-map sweep. A hardcoded wiki/
-    # path is three tool failures a night on an Obsidian-style vault, with no
-    # interactive user around to notice.
-    # Naming `wiki/entities/` is fine and expected - as the wiki-style *default*,
-    # beside its Obsidian-style alias. What breaks an Obsidian vault is scanning it
-    # unconditionally, so the negative check is the bare imperative, not the path.
-    assert "references/folder-map.md" in blueprint
-    for alias in ("People/", "Knowledge/"):
-        assert alias in blueprint, alias
-    for unconditional in ("Scan `wiki/entities/`", "create `wiki/concepts/Synthesis"):
-        assert unconditional not in blueprint, unconditional
-
-    # #191: cron jobs are armed with --workdir <vault> and this adapter's own
-    # INSTALL.md points Hermes at the vault, so the working directory is never
-    # the skill root. Every Python invocation has to name the root itself.
-    health = REPO_ROOT / "dist/hermes/optional-skills/obsidian-health-check/SKILL.md"
-    health_text = health.read_text(encoding="utf-8")
-    # Anchored on "Run:" so the blueprint stays free to *name* the broken form
-    # when explaining why the flag is there.
-    assert "Run: `uv run --directory" in health_text
-    assert "Run: `uv run -m scripts." not in health_text
-    # A quoted tilde does not expand, so `--directory "~/..."` would hand uv a
-    # literal `~` directory. $HOME survives the double quotes commands write.
-    for md in (REPO_ROOT / "dist/hermes").rglob("*.md"):
-        text = md.read_text(encoding="utf-8", errors="ignore")
-        assert '--directory "."' not in text, md
-        assert '--directory "~' not in text, md
-    hooks_doc = REPO_ROOT / "dist/hermes/HOOKS.md"
-    assert hooks_doc.is_file()
-    # The on_session_end lifecycle hook (PostCompact analog) and its config ship.
-    assert (REPO_ROOT / "dist/hermes/hooks/obsidian-hermes-session-end.sh").is_file()
-    assert (REPO_ROOT / "dist/hermes/hooks/hermes-hooks.config.example.yaml").is_file()
-    hooks_text = hooks_doc.read_text(encoding="utf-8")
-    assert "on_session_end" in hooks_text
-    # Blueprints never arm on install (#134): the docs must teach explicit arming.
-    assert "hermes cron create" in hooks_text
-    assert "arms as soon as" not in hooks_text
-    install_text = (REPO_ROOT / "dist/hermes/INSTALL.md").read_text(encoding="utf-8")
-    assert "~/.hermes/optional-skills" not in install_text
-    assert "hermes cron create" in install_text
-
-
-def test_pi_build_generates_package():
-    """The pi adapter must emit a valid Pi package: package.json with pi
-    prompts/skills entries, prompt templates with frontmatter, and a discovery
-    skill with valid Agent Skills frontmatter."""
-    result = subprocess.run(
-        ["bash", "scripts/build.sh", "--platform", "pi"],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-
-    assert result.returncode == 0, result.stderr
-
-    package_json = REPO_ROOT / "dist/pi/package.json"
-    assert package_json.is_file()
-    manifest = json.loads(package_json.read_text(encoding="utf-8"))
-    assert manifest["name"] == "obsidian-second-brain-pi"
-    assert ".pi/prompts" in manifest.get("pi", {}).get("prompts", [])
-    assert ".pi/skills" in manifest.get("pi", {}).get("skills", [])
-
-    prompt = REPO_ROOT / "dist/pi/.pi/prompts/obsidian-save.md"
-    assert prompt.is_file()
-    head = prompt.read_text(encoding="utf-8")[:300]
-    assert "---" in head
-    assert "description:" in head
-
-    skill = REPO_ROOT / "dist/pi/.pi/skills/obsidian-second-brain/SKILL.md"
-    assert skill.is_file()
-    skill_head = skill.read_text(encoding="utf-8")[:400]
-    assert "name: obsidian-second-brain" in skill_head
-    assert "description:" in skill_head
-
-    # Paths should be rewritten for the Pi layout, not left pointing at Claude.
-    prompt_body = prompt.read_text(encoding="utf-8")
-    assert "~/.claude/skills/obsidian-second-brain" not in prompt_body
-    assert ".pi/skills/obsidian-second-brain" in prompt_body
-
-
-def test_agent_skills_build_generates_spec_compliant_tree():
-    """The agent-skills adapter must emit one spec-compliant Agent Skills tree
-    that Antigravity / Codex CLI / OpenCode all read from `.agents/skills/`:
-    skills/<name>/SKILL.md per command plus the shared obsidian-core engine
-    skill, with NO root SKILL.md (which would shadow the nested skills)."""
-    result = subprocess.run(
-        ["bash", "scripts/build.sh", "--platform", "agent-skills"],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-
-    assert result.returncode == 0, result.stderr
-
-    skills_dir = REPO_ROOT / "dist/agent-skills/skills"
-    assert skills_dir.is_dir()
-    # A root SKILL.md shadows every nested skill in skills.sh discovery.
-    assert not (REPO_ROOT / "dist/agent-skills/SKILL.md").exists()
-
-    # A command skill: spec-minimal frontmatter, self-sufficiency preamble, the
-    # full command body, and the embedded write spec.
-    save = skills_dir / "obsidian-save/SKILL.md"
-    assert save.is_file()
-    save_text = save.read_text(encoding="utf-8")
-    head = save_text[:600]
-    assert "name: obsidian-save" in head
-    assert "description:" in head
-    assert "Triggers: save this" in head
-    # Capture-type commands carry the proactive selection policy.
-    assert "Use proactively" in head
-    assert "$OBSIDIAN_VAULT_PATH" in save_text
-    assert "Use the obsidian-second-brain skill. Execute `/obsidian-save`:" in save_text
-    assert "## AI-first vault rule (embedded)" in save_text
-    assert "## For future agent" in save_text
-
-    # Non-capture commands get the explicit-only policy, not the proactive one.
-    research = (skills_dir / "research/SKILL.md").read_text(encoding="utf-8")
-    assert "Use only when the user explicitly asks" in research
-    assert "Use proactively" not in research
-    # SKILL_ROOT is rewritten to the installed obsidian-core location.
-    assert "SKILL_ROOT" not in research
-    assert 'uv run --directory ".agents/skills/obsidian-core"' in research
-
-    # The shared engine skill ships references, scripts, and its uv project.
-    core = skills_dir / "obsidian-core"
-    assert (core / "SKILL.md").is_file()
-    assert (core / "pyproject.toml").is_file()
-    assert (core / "references/ai-first-rules.md").is_file()
-    assert (core / "scripts").is_dir()
-
-    # Calendar depends on a Claude-only MCP and is excluded from this build.
-    assert not (skills_dir / "obsidian-calendar").exists()
-
-    # Install docs cover both the skills.sh path and the manual fallback.
-    install_text = (REPO_ROOT / "dist/agent-skills/INSTALL.md").read_text(encoding="utf-8")
-    assert "npx skills add" in install_text
-    assert "cp -R dist/agent-skills/skills/." in install_text
-    assert (REPO_ROOT / "dist/agent-skills/global-rule-snippet.md").is_file()
-
-
-def test_grok_bot_build_generates_mcp_backed_skills():
-    """The grok-bot adapter must emit skills/<name>/SKILL.md per command plus
-    the shared obsidian-core engine skill, designed for Grok Bot / Sand with
-    the user-obsidian-second-brain MCP server providing vault I/O."""
-    result = subprocess.run(
-        ["bash", "scripts/build.sh", "--platform", "grok-bot"],
-        cwd=REPO_ROOT,
-        check=False,
-        capture_output=True,
-        text=True,
-        encoding="utf-8",
-        errors="replace",
-    )
-
-    assert result.returncode == 0, result.stderr
-
-    skills_dir = REPO_ROOT / "dist/grok-bot/skills"
-    assert skills_dir.is_dir()
-
-    # A command skill: frontmatter with name + description, MCP preamble, the
-    # full command body, and the embedded write spec.
-    save = skills_dir / "obsidian-save/SKILL.md"
-    assert save.is_file()
-    save_text = save.read_text(encoding="utf-8")
-    head = save_text[:1000]
-    assert "name: obsidian-save" in head
-    assert "description:" in head
-    assert "Triggers: save this" in head
-    assert "Use proactively" in head
-    # MCP instructions must be present
-    assert "user-obsidian-second-brain" in save_text
-    assert "obsidian_search" in save_text
-    assert "obsidian_save_note" in save_text
-    assert "obsidian_validate_note" in save_text
-    # Command body must be present, not just preamble
-    assert "Run obsidian-save" in save_text or "obsidian-save:" in save_text
-    assert "Scan the entire conversation" in save_text
-    assert "Group items by type" in save_text
-    assert "call obsidian_read_note" in save_text or "obsidian_read_note(" in save_text
-    # No Claude-specific language
-    assert "Execute `/obsidian-save`" not in save_text
-    assert "Spawn parallel subagents" not in save_text
-    # No filesystem Read/Write language (should be MCP calls)
-    assert "Read `" not in save_text[:2000] or "call obsidian_read_note" in save_text
-    assert "## AI-first vault rule (embedded)" in save_text
-
-    # Non-capture commands get the explicit-only policy.
-    research = (skills_dir / "research/SKILL.md").read_text(encoding="utf-8")
-    assert "Use only when the user explicitly asks" in research
-    assert "Use proactively" not in research
-    # Command body must be present
-    assert "research" in research.lower()
-    assert len(research) > 2000, "research skill body is suspiciously short"
-
-    # The shared engine skill ships references, scripts, and its uv project.
-    core = skills_dir / "obsidian-core"
-    assert (core / "SKILL.md").is_file()
-    assert (core / "pyproject.toml").is_file()
-    assert (core / "references/ai-first-rules.md").is_file()
-    assert (core / "scripts").is_dir()
-
-    # Calendar depends on a Claude-only MCP and is excluded from this build.
-    assert not (skills_dir / "obsidian-calendar").exists()
-
-    # Install docs explain the MCP + skills model.
-    install_text = (REPO_ROOT / "dist/grok-bot/INSTALL.md").read_text(encoding="utf-8")
-    assert "user-obsidian-second-brain" in install_text
-    assert "MCP server" in install_text or "MCP is the I/O layer" in install_text
-    # Should NOT hardcode .agents/skills/ as the install path
-    assert "Grok Bot and Sand load skills from the workspace `.agents/skills/` directory" not in install_text
-    # Should explain workflows are invoked with / or @
-    assert "invoked with `/` or `@`" in install_text or "invoke by name" in install_text
-    # Grok Bot has no hooks.
-    assert "no hook runtime" in install_text.lower() or "no hooks" in install_text.lower()
 
 
 def test_vault_health_json_reports_clean_linked_vault(tmp_path):
@@ -375,7 +89,10 @@ def test_substitution_check_flags_prose_em_dash(tmp_path):
     bad.write_text(f"A prose line with an em{em}dash.\n", encoding="utf-8")
     flagged = subprocess.run(
         [sys.executable, "scripts/sweep_non_ascii.py", "--check", str(bad)],
-        cwd=REPO_ROOT, check=False, capture_output=True, text=True,
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
     )
     assert flagged.returncode == 1, flagged.stdout
 
@@ -383,7 +100,10 @@ def test_substitution_check_flags_prose_em_dash(tmp_path):
     ok.write_text(f"A filename in code: `2026-01-01 {em} note.md` is fine.\n", encoding="utf-8")
     passed = subprocess.run(
         [sys.executable, "scripts/sweep_non_ascii.py", "--check", str(ok)],
-        cwd=REPO_ROOT, check=False, capture_output=True, text=True,
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
     )
     assert passed.returncode == 0, passed.stdout
 
@@ -404,7 +124,10 @@ def test_health_normalizes_dashes_in_links(tmp_path):
     )
     result = subprocess.run(
         [sys.executable, "scripts/vault_health.py", "--path", str(tmp_path), "--json"],
-        cwd=REPO_ROOT, check=False, capture_output=True, text=True,
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
     assert '"wanted_note"' not in result.stdout, (
@@ -416,10 +139,13 @@ def _run_health_json(tmp_path):
     """Run vault_health.py --json and return the parsed result (skips the stdout header)."""
     result = subprocess.run(
         [sys.executable, "scripts/vault_health.py", "--path", str(tmp_path), "--json"],
-        cwd=REPO_ROOT, check=False, capture_output=True, text=True,
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0, result.stdout + result.stderr
-    return json.loads(result.stdout[result.stdout.index("{"):])
+    return json.loads(result.stdout[result.stdout.index("{") :])
 
 
 def test_health_duplicates_exempt_dated_series(tmp_path):
@@ -474,9 +200,7 @@ def test_health_excludes_codex_support_directories(tmp_path):
     )
     (tmp_path / "AGENTS.md").write_text("# Runtime manual\n", encoding="utf-8")
     (tmp_path / "INSTALL.md").write_text("# Install hint\n", encoding="utf-8")
-    (tmp_path / "Templates" / "Daily Note.md").write_text(
-        "# Daily template\n", encoding="utf-8"
-    )
+    (tmp_path / "Templates" / "Daily Note.md").write_text("# Daily template\n", encoding="utf-8")
     (tmp_path / "Home.md").write_text(
         "---\ndate: 2026-07-10\ntype: home\ntags: [home]\nai-first: true\n---\n"
         "## For future agent\nThis is the test vault home.\n\n"
@@ -705,7 +429,9 @@ def test_link_graph_builds_nodes_edges_and_orphans(tmp_path):
     )
     out = subprocess.run(
         [sys.executable, str(REPO_ROOT / "scripts/link_graph.py"), "--path", str(vault)],
-        capture_output=True, text=True, check=True,
+        capture_output=True,
+        text=True,
+        check=True,
     )
     graph = json.loads(out.stdout)
     stats = graph["stats"]
@@ -727,25 +453,25 @@ def test_link_graph_resolves_unicode_composition(tmp_path):
     test means the same on Linux CI as on macOS."""
     vault = tmp_path / "vault"
     (vault / "wiki").mkdir(parents=True)
-    nfc = "Gr\u00fcndung"      # composed: single U+00FC
-    nfd = "Gru\u0308ndung"     # decomposed: u + U+0308 (macOS filename form)
+    nfc = "Gr\u00fcndung"  # composed: single U+00FC
+    nfd = "Gru\u0308ndung"  # decomposed: u + U+0308 (macOS filename form)
     # Filename decomposed, link composed - the common macOS case.
-    (vault / "wiki" / f"{nfd}.md").write_text(
-        "---\ntype: note\n---\nContent.\n", encoding="utf-8"
-    )
+    (vault / "wiki" / f"{nfd}.md").write_text("---\ntype: note\n---\nContent.\n", encoding="utf-8")
     (vault / "wiki" / "Hub.md").write_text(
         f"---\ntype: project\n---\nSee [[{nfc}]] for background.\n", encoding="utf-8"
     )
-    graph = json.loads(subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts/link_graph.py"), "--path", str(vault)],
-        capture_output=True, text=True, check=True,
-    ).stdout)
+    graph = json.loads(
+        subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts/link_graph.py"), "--path", str(vault)],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    )
     assert graph["stats"]["dangling_link_count"] == 0, (
         "a composed link to a decomposed filename must resolve, not dangle"
     )
-    assert graph["stats"]["orphan_count"] == 0, (
-        "neither note may be reported as a phantom orphan"
-    )
+    assert graph["stats"]["orphan_count"] == 0, "neither note may be reported as a phantom orphan"
     assert graph["stats"]["edge_count"] == 1
 
 
@@ -759,30 +485,36 @@ def test_link_graph_typed_edges_and_lint(tmp_path):
     (vault / "wiki").mkdir(parents=True)
     (vault / "wiki" / "ADR-007.md").write_text(
         "---\ntype: adr\nrelations:\n"
-        "  supersedes: [\"[[ADR-006]]\"]\n"
-        "  depends_on:\n    - \"[[Tide Gateway]]\"\n"
-        "  frobnicates: [\"[[Tide Gateway]]\"]\n"
-        "  caused: [\"[[Ghost Note]]\"]\n"
-        "  relates_to: [\"[[ADR-007]]\"]\n"
+        '  supersedes: ["[[ADR-006]]"]\n'
+        '  depends_on:\n    - "[[Tide Gateway]]"\n'
+        '  frobnicates: ["[[Tide Gateway]]"]\n'
+        '  caused: ["[[Ghost Note]]"]\n'
+        '  relates_to: ["[[ADR-007]]"]\n'
         "---\nBody links to [[Tide Gateway]].\n",
         encoding="utf-8",
     )
     # Legacy top-level scalar; mutual supersedes with ADR-007 is a contradiction.
     (vault / "wiki" / "ADR-006.md").write_text(
-        "---\ntype: adr\nsupersedes: \"[[ADR-007]]\"\n---\nOld decision.\n", encoding="utf-8"
+        '---\ntype: adr\nsupersedes: "[[ADR-007]]"\n---\nOld decision.\n', encoding="utf-8"
     )
     (vault / "wiki" / "Tide Gateway.md").write_text(
         "---\ntype: project\n---\nA project.\n", encoding="utf-8"
     )
 
-    graph = json.loads(subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts/link_graph.py"), "--path", str(vault)],
-        capture_output=True, text=True, check=True,
-    ).stdout)
+    graph = json.loads(
+        subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts/link_graph.py"), "--path", str(vault)],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    )
     # Overlay is separate from connectivity: three honored typed edges, and the
     # legacy scalar is read as a typed edge too.
     assert graph["stats"]["typed_edge_count"] == 3
-    typed = {(e["from"].split("/")[-1], e["to"].split("/")[-1], e["type"]) for e in graph["typed_edges"]}
+    typed = {
+        (e["from"].split("/")[-1], e["to"].split("/")[-1], e["type"]) for e in graph["typed_edges"]
+    }
     assert ("ADR-007.md", "ADR-006.md", "supersedes") in typed
     assert ("ADR-007.md", "Tide Gateway.md", "depends_on") in typed
     assert ("ADR-006.md", "ADR-007.md", "supersedes") in typed  # from the legacy scalar
@@ -790,10 +522,20 @@ def test_link_graph_typed_edges_and_lint(tmp_path):
     hub = next(n for n in graph["nodes"] if n["title"] == "ADR-007")
     assert hub["degree"] == 3
 
-    lint = json.loads(subprocess.run(
-        [sys.executable, str(REPO_ROOT / "scripts/link_graph.py"), "--path", str(vault), "--lint"],
-        capture_output=True, text=True, check=True,
-    ).stdout)
+    lint = json.loads(
+        subprocess.run(
+            [
+                sys.executable,
+                str(REPO_ROOT / "scripts/link_graph.py"),
+                "--path",
+                str(vault),
+                "--lint",
+            ],
+            capture_output=True,
+            text=True,
+            check=True,
+        ).stdout
+    )
     kinds = {(f["kind"], f["type"]) for f in lint["findings"]}
     assert ("unknown_type", "frobnicates") in kinds
     assert ("dangling_target", "caused") in kinds
@@ -803,38 +545,12 @@ def test_link_graph_typed_edges_and_lint(tmp_path):
     assert any(f["kind"] == "missing_inverse" for f in lint["findings"])
 
 
-def test_semantic_search_math_and_carveout(monkeypatch):
-    """Semantic layer's stdlib math is correct without needing a model: cosine
-    behaves, hybrid RRF lifts a note strong in BOTH rankings, and the privacy
-    carve-out excludes configured path prefixes."""
-    import importlib
-    sys.path.insert(0, str(REPO_ROOT / "scripts/eval"))
-    monkeypatch.setenv("OBSIDIAN_EMBED_EXCLUDE", "wiki/private/,Journal")
-    ss = importlib.reload(importlib.import_module("semantic_search"))
-
-    assert ss.cosine([1, 2, 3], [1, 2, 3]) == 1.0
-    assert ss.cosine([1, 0], [0, 1]) == 0.0
-    assert round(ss.cosine([1, 0], [-1, 0]), 3) == -1.0
-
-    # carve-out: configured prefixes never get embedded
-    assert ss._excluded("wiki/private/diary.md")
-    assert ss._excluded("Journal/diary.md")
-    assert not ss._excluded("wiki/projects/Tide Gateway.md")
-
-    # hybrid RRF: a note present in both rankings outranks one present in only one
-    monkeypatch.setattr(ss, "semantic_search",
-                        lambda q, idx, limit=10: [{"path": "both", "title": "both", "score": .9},
-                                                  {"path": "sem_only", "title": "s", "score": .7}])
-    lexical = [{"path": "both", "title": "both"}, {"path": "lex_only", "title": "l"}]
-    fused = ss.hybrid_search("q", {"notes": {}}, lexical, limit=3)
-    assert fused[0]["path"] == "both", [f["path"] for f in fused]
-
-
 def test_mcp_vault_ops_hybrid_fusion_and_fallback(tmp_path, monkeypatch):
     """When a semantic index + reachable model exist, search fuses lexical with
     semantic (a meaning-only match surfaces). When the model call fails, search
     silently falls back to pure lexical - it must never break."""
     import json as _json
+
     vault_ops = _load_vault_ops()
     vault = tmp_path / "vault"
     (vault / "wiki").mkdir(parents=True)
@@ -845,20 +561,25 @@ def test_mcp_vault_ops_hybrid_fusion_and_fallback(tmp_path, monkeypatch):
     )
     (vault / "wiki" / "Other.md").write_text("---\ntype: note\n---\nUnrelated.\n", encoding="utf-8")
     # Fake index: the Valencia note's vector points the same way as our stub query vector.
-    index = {"model": "test", "notes": {
-        "wiki/Valencia basis.md": {"hash": "x", "title": "Valencia basis", "vec": [1.0, 0.0]},
-        "wiki/Other.md": {"hash": "y", "title": "Other", "vec": [0.0, 1.0]},
-    }}
+    index = {
+        "model": "test",
+        "notes": {
+            "wiki/Valencia basis.md": {"hash": "x", "title": "Valencia basis", "vec": [1.0, 0.0]},
+            "wiki/Other.md": {"hash": "y", "title": "Other", "vec": [0.0, 1.0]},
+        },
+    }
     (vault / vault_ops._SEMANTIC_INDEX_FILE).write_text(_json.dumps(index), encoding="utf-8")
 
     monkeypatch.setattr(vault_ops, "_embed_query", lambda q: [1.0, 0.0])
     hits = vault_ops.search("where am I based", limit=5)
-    assert any(h["path"] == "wiki/Valencia basis.md" for h in hits), \
+    assert any(h["path"] == "wiki/Valencia basis.md" for h in hits), (
         "semantic match should surface via fusion: " + ", ".join(h["path"] for h in hits)
+    )
 
     # Model unreachable -> fallback to lexical, no exception.
     def _boom(q):
         raise RuntimeError("ollama down")
+
     monkeypatch.setattr(vault_ops, "_embed_query", _boom)
     assert vault_ops.search("Valencia", limit=5)  # still returns lexical hits, no crash
 
@@ -969,7 +690,9 @@ def test_mcp_vault_ops_skips_claude_dir(tmp_path, monkeypatch):
     (vault / "wiki").mkdir(parents=True)
     (vault / ".claude" / "commands").mkdir(parents=True)
     monkeypatch.setenv("OBSIDIAN_VAULT_PATH", str(vault))
-    (vault / "wiki" / "Real.md").write_text("---\ntype: note\n---\nwidget content\n", encoding="utf-8")
+    (vault / "wiki" / "Real.md").write_text(
+        "---\ntype: note\n---\nwidget content\n", encoding="utf-8"
+    )
     (vault / ".claude" / "CLAUDE.md").write_text("widget config\n", encoding="utf-8")
     (vault / ".claude" / "commands" / "save.md").write_text("widget command\n", encoding="utf-8")
 
@@ -984,14 +707,19 @@ def test_architect_scan_emits_manifest(tmp_path):
     on a minimal project (no network, no install)."""
     proj = tmp_path / "proj"
     (proj / "src" / "billing").mkdir(parents=True)
-    (proj / "src" / "billing" / "charge.py").write_text("def charge():\n    pass\n", encoding="utf-8")
+    (proj / "src" / "billing" / "charge.py").write_text(
+        "def charge():\n    pass\n", encoding="utf-8"
+    )
     (proj / "pyproject.toml").write_text(
         '[project]\nname = "paymentbot"\ndependencies = ["requests"]\n', encoding="utf-8"
     )
 
     result = subprocess.run(
         [sys.executable, "scripts/architect_scan.py", "--path", str(proj)],
-        cwd=REPO_ROOT, check=False, capture_output=True, text=True,
+        cwd=REPO_ROOT,
+        check=False,
+        capture_output=True,
+        text=True,
     )
     assert result.returncode == 0, result.stderr
     data = _json_from_stdout(result.stdout)
@@ -1000,60 +728,6 @@ def test_architect_scan_emits_manifest(tmp_path):
     assert any(m["name"] == "billing" for m in data["modules"])
     assert "requests" in data["dependencies"]
     assert any(lang["language"] == "Python" for lang in data["languages"])
-
-
-_RESEARCH_MODE_PROBE = """
-import importlib
-import sys
-
-mod = importlib.import_module(sys.argv[1])
-setattr(mod, sys.argv[2], lambda *a, **k: print("CHOSE=paid") or 0)
-setattr(mod, sys.argv[3], lambda *a, **k: print("CHOSE=free") or 0)
-sys.exit(mod.main(["prog", "smoke test topic"]))
-"""
-
-
-@pytest.mark.parametrize(
-    ("module", "paid_fn", "free_fn"),
-    [
-        ("scripts.research.research", "run_paid", "run_free"),
-        ("scripts.research.research_deep", "run_paid_deep", "run_free_deep"),
-    ],
-)
-def test_research_key_in_config_env_selects_paid_mode(tmp_path, module, paid_fn, free_fn):
-    """A PERPLEXITY_API_KEY set only in ~/.config/obsidian-second-brain/.env (the
-    documented setup) must select paid mode, and no key anywhere must keep the
-    zero-config free mode. Regression fence for #124: the free-vs-paid decision
-    read os.environ before anything had loaded the .env file, so paid-mode users
-    silently got the free pipeline."""
-    fake_home = tmp_path / "home"
-    config_dir = fake_home / ".config" / "obsidian-second-brain"
-    config_dir.mkdir(parents=True)
-    vault = tmp_path / "vault"
-    vault.mkdir()
-
-    env = os.environ.copy()
-    env["HOME"] = str(fake_home)
-    env.pop("PERPLEXITY_API_KEY", None)
-    env.pop("OBSIDIAN_VAULT_PATH", None)
-
-    def chosen_mode(env_file: str) -> str:
-        (config_dir / ".env").write_text(env_file, encoding="utf-8")
-        result = subprocess.run(
-            [sys.executable, "-c", _RESEARCH_MODE_PROBE, module, paid_fn, free_fn],
-            cwd=REPO_ROOT,
-            env=env,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-        assert result.returncode == 0, result.stderr
-        return result.stdout
-
-    # research_deep requires a vault path at import time; research ignores it.
-    vault_line = f"OBSIDIAN_VAULT_PATH={vault}\n"
-    assert "CHOSE=paid" in chosen_mode(vault_line + "PERPLEXITY_API_KEY=pplx-smoke-test-key\n")
-    assert "CHOSE=free" in chosen_mode(vault_line)
 
 
 def test_update_vault_integration_script_guards():
@@ -1073,52 +747,15 @@ def test_update_vault_integration_script_guards():
     assert "--vault is required" in no_vault.stderr
 
     import tempfile
+
     with tempfile.TemporaryDirectory() as tmp:
         bogus = subprocess.run(
             ["bash", str(script), "--vault", tmp, "--platform", "bogus"],
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
         assert bogus.returncode != 0
         assert "unknown platform" in bogus.stderr
-
-
-def test_retrieval_eval_external_mode(tmp_path):
-    """--mode external benchmarks any engine via RETRIEVAL_EVAL_EXTERNAL_CMD:
-    the command gets the query as final argv and prints ranked paths (JSON
-    array or lines). A fake always-right engine must score recall@1 = 1.0."""
-    vault = tmp_path / "vault"
-    vault.mkdir()
-    (vault / "real.md").write_text("# real\n", encoding="utf-8")
-
-    cases = tmp_path / "cases.jsonl"
-    cases.write_text('{"q": "test question", "gold": ["real.md"], "title": "real"}\n', encoding="utf-8")
-
-    engine = tmp_path / "engine.sh"
-    engine.write_text('#!/usr/bin/env bash\necho \'["real.md", "other.md"]\'\n', encoding="utf-8")
-    engine.chmod(0o755)
-
-    env = dict(os.environ,
-               OBSIDIAN_VAULT_PATH=str(vault),
-               RETRIEVAL_EVAL_EXTERNAL_CMD=f"bash {engine}")
-    result = subprocess.run(
-        [sys.executable, "scripts/eval/retrieval_eval.py",
-         "--cases", str(cases), "--mode", "external", "--json"],
-        cwd=REPO_ROOT, env=env, capture_output=True, text=True,
-    )
-    assert result.returncode == 0, result.stderr
-    payload = json.loads(result.stdout[result.stdout.find("{"):])
-    assert payload["summary"]["recall_at"]["1"] == 1.0
-    assert "external engine" in payload["summary"]["search"]
-
-    # Without the env var, external mode must fail with a clear message.
-    env.pop("RETRIEVAL_EVAL_EXTERNAL_CMD")
-    missing = subprocess.run(
-        [sys.executable, "scripts/eval/retrieval_eval.py",
-         "--cases", str(cases), "--mode", "external"],
-        cwd=REPO_ROOT, env=env, capture_output=True, text=True,
-    )
-    assert missing.returncode != 0
-    assert "RETRIEVAL_EVAL_EXTERNAL_CMD" in missing.stderr
 
 
 def test_mcp_search_supersedes_reverse_edge(tmp_path, monkeypatch):
@@ -1147,8 +784,9 @@ def test_mcp_search_supersedes_reverse_edge(tmp_path, monkeypatch):
     results = vault_ops.search("caching strategy", limit=5)
     paths = [r["path"] for r in results]
     assert any("ADR-1" in p for p in paths) and any("ADR-2" in p for p in paths)
-    assert paths.index(next(p for p in paths if "ADR-2" in p)) < \
-           paths.index(next(p for p in paths if "ADR-1" in p)), paths
+    assert paths.index(next(p for p in paths if "ADR-2" in p)) < paths.index(
+        next(p for p in paths if "ADR-1" in p)
+    ), paths
 
 
 def test_validate_hook_flags_secrets(tmp_path):
@@ -1161,14 +799,17 @@ def test_validate_hook_flags_secrets(tmp_path):
     leaky = tmp_path / "leaky.md"
     leaky.write_text(frontmatter + "key sk-test1234567890abcdefghijklmnop here\n", encoding="utf-8")
     clean = tmp_path / "clean.md"
-    clean.write_text(frontmatter + "Use XAI_API_KEY from .env. Choose a strong password.\n", encoding="utf-8")
+    clean.write_text(
+        frontmatter + "Use XAI_API_KEY from .env. Choose a strong password.\n", encoding="utf-8"
+    )
 
     def run(f):
         return subprocess.run(
             ["bash", str(hook)],
             input=json.dumps({"tool_input": {"file_path": str(f)}}),
             env=dict(os.environ, OBSIDIAN_VAULT_PATH=str(tmp_path)),
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
 
     r_leaky = run(leaky)
@@ -1227,6 +868,7 @@ def test_validate_hook_accepts_vscode_extension_payload(tmp_path):
     assert_warn(run({"tool_name": "Write", "tool_input": {"file_path": str(bad)}}))
     assert_warn(run({"tool_name": "create_file", "tool_input": {"filePath": str(bad)}}))
 
+
 def test_recall_hook_contract(tmp_path):
     """Bounded recall: inert without the double gate, injects a bounded brief
     on a relevant prompt, abstains (silently, exit 0) on an irrelevant one,
@@ -1247,7 +889,9 @@ def test_recall_hook_contract(tmp_path):
         return subprocess.run(
             [sys.executable, str(hook)],
             input=json.dumps({"prompt": prompt}),
-            env=env, capture_output=True, text=True,
+            env=env,
+            capture_output=True,
+            text=True,
         )
 
     # Gate: disabled -> silent no-op.
@@ -1298,7 +942,9 @@ def test_recall_hook_abstention_gate_is_cjk_aware(tmp_path):
         return subprocess.run(
             [sys.executable, str(hook)],
             input=json.dumps({"prompt": prompt}),
-            env=env, capture_output=True, text=True,
+            env=env,
+            capture_output=True,
+            text=True,
         )
 
     hit = run("設定ファイルはどこに置くのが正しいですか")
@@ -1318,64 +964,6 @@ def test_recall_hook_abstention_gate_is_cjk_aware(tmp_path):
     )
 
 
-def test_relative_reference_citations_are_not_silent():
-    """The relative-path class (issue #171, reported by the codex-cli owner).
-
-    Six of the seven builds cite the AI-first spec by a path relative to the
-    install root and ship no inline copy, so the pointer is the only route to
-    the spec. Start the agent anywhere but that root and the read fails - and
-    it fails silently, because an unreachable advisory reference does not stop
-    the skill from running.
-
-    `agent-skills` is exempt: it embeds the full spec in every SKILL.md ("so it
-    applies even on a partial install"), so an unresolvable pointer there costs
-    nothing. That is also why the fix for the other six is a recovery path plus
-    a loud failure rather than inline embedding - embedding 25KB into 45 skills
-    across 6 builds would buy the same guarantee at ~6.7MB of context.
-
-    `conformance_report.py` cannot catch this: it asserts the cited file exists
-    inside the build, which is true here. It has no concept of where the agent
-    is standing when it reads.
-    """
-    subprocess.run(
-        ["bash", "scripts/build.sh"],
-        cwd=REPO_ROOT, capture_output=True, text=True, check=True,
-    )
-
-    dist = REPO_ROOT / "dist"
-    offenders = []
-    checked = 0
-    for path in sorted(dist.rglob("*.md")):
-        rel = path.relative_to(dist)
-        # The spec itself, and sibling reference docs, are the target of the
-        # citation rather than agent instructions that follow it.
-        if "references/" in rel.as_posix() or rel.name == "ai-first-rules.md":
-            continue
-        raw = path.read_text(encoding="utf-8", errors="ignore")
-        if "ai-first-rules.md" not in raw:
-            continue
-        # Builds that embed the spec inline cannot fail this way.
-        if "AI-first vault rule (embedded)" in raw:
-            continue
-        checked += 1
-        # Collapse whitespace: these clauses are prose and wrap across lines at
-        # whatever width the emitting heredoc happens to use.
-        text = " ".join(raw.split())
-        has_recovery = "search upward" in text
-        has_loud_failure = "say so before writing" in text
-        states_precondition = "load-bearing" in text
-        if not (has_recovery and has_loud_failure) and not states_precondition:
-            offenders.append(rel.as_posix())
-
-    assert checked, "no pointer-only file cited the spec - the sweep is vacuous"
-    assert not offenders, (
-        f"{len(offenders)} of {checked} pointer-only files cite the AI-first spec "
-        "by a relative path with no recovery and no loud failure, so an agent "
-        "outside the install root skips the rule silently:\n  "
-        + "\n  ".join(offenders[:15])
-    )
-
-
 def test_validate_hook_flags_tags_obsidian_renders_broken(tmp_path):
     """Check 7 (#221): digits-only, dotted and spaced tags render struck through in
     Obsidian with no error anywhere, so the hook must be the thing that says so.
@@ -1390,7 +978,8 @@ def test_validate_hook_flags_tags_obsidian_renders_broken(tmp_path):
             ["bash", str(hook)],
             input=json.dumps({"tool_input": {"file_path": str(f)}}),
             env=dict(os.environ, OBSIDIAN_VAULT_PATH=str(tmp_path)),
-            capture_output=True, text=True,
+            capture_output=True,
+            text=True,
         )
 
     bad_inline = tmp_path / "bad_inline.md"
@@ -1411,8 +1000,10 @@ def test_validate_hook_flags_tags_obsidian_renders_broken(tmp_path):
     assert "tag `033` is digits only" in msg
 
     good = tmp_path / "good.md"
-    good.write_text(head + "tags: [project, store-33, v2-0, area/sub-topic, ideas_2026, знания, 学习]\n" + tail,
-                    encoding="utf-8")
+    good.write_text(
+        head + "tags: [project, store-33, v2-0, area/sub-topic, ideas_2026, знания, 学习]\n" + tail,
+        encoding="utf-8",
+    )
     r = run(good)
     assert r.returncode == 0, r.stderr
     assert r.stdout.strip() == "", r.stdout

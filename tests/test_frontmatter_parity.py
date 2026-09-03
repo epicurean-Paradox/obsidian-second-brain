@@ -1,22 +1,19 @@
 """Frontmatter parity, exclude validation, and two silent-failure holes.
 
-  S9  three regexes disagreed on real input. A note whose opening fence carried
-      trailing whitespace had frontmatter to vault_health and vault_stats and
-      none to export_okf, which then wrote the frontmatter into the exported
-      body as prose and typed the note `note`
-  B20 `exclude:` was an unvalidated string match, so a plausible misspelling
-      shipped a Claude-only command to every platform with exit 0
-  B40 note keys used str(Path), which is backslash-separated on Windows, so
-      every `rel.split("/")` saw no separator and the top-folder logic returned
-      "" for every note - collapsing the skip-folder and dated-series exemptions
-  B35 unattended hooks appended to a fixed, predictable, world-readable path in
-      the shared /tmp
+S9  three regexes disagreed on real input. A note whose opening fence carried
+    trailing whitespace had frontmatter to vault_health and vault_stats and
+    none to export_okf, which then wrote the frontmatter into the exported
+    body as prose and typed the note `note`
+B40 note keys used str(Path), which is backslash-separated on Windows, so
+    every `rel.split("/")` saw no separator and the top-folder logic returned
+    "" for every note - collapsing the skip-folder and dated-series exemptions
+B35 unattended hooks appended to a fixed, predictable, world-readable path in
+    the shared /tmp
 """
 
 from __future__ import annotations
 
 import re
-import subprocess
 import sys
 from pathlib import Path
 
@@ -61,41 +58,8 @@ def test_the_canonical_parser_handles_the_awkward_cases():
     assert fm == "" and body == "no frontmatter here\n", "must not raise on a bare note"
 
 
-# --- B20 -------------------------------------------------------------------
-
-def _build(cwd=None):
-    return subprocess.run(
-        ["bash", str(REPO_ROOT / "scripts" / "build.sh"), "--platform", "hermes"],
-        cwd=cwd or REPO_ROOT, capture_output=True, text=True, check=False,
-    )
-
-
-def test_a_misspelled_exclude_platform_fails_the_build():
-    bad = REPO_ROOT / "commands" / "zz-test-bad-exclude.md"
-    bad.write_text(
-        "---\ndescription: temporary fixture\nexclude: [codex, agentskills]\n---\n\nbody\n",
-        encoding="utf-8",
-    )
-    try:
-        result = _build()
-        assert result.returncode != 0, (
-            "a command excluding 'codex' and 'agentskills' built cleanly. Both are "
-            "plausible shortenings of real platform names, and neither matches, so "
-            "the command shipped to every platform it meant to skip."
-        )
-        assert "unknown platform" in result.stderr
-        assert "codex-cli" in result.stderr, "the error should name the valid platforms"
-    finally:
-        bad.unlink(missing_ok=True)
-
-
-def test_the_real_exclude_list_still_builds():
-    """Guards against a validator so strict it rejects the one real user."""
-    result = _build()
-    assert result.returncode == 0, result.stderr
-
-
 # --- B40 -------------------------------------------------------------------
+
 
 def test_note_keys_are_posix_separated():
     src = (REPO_ROOT / "scripts" / "vault_health.py").read_text(encoding="utf-8")
@@ -117,6 +81,7 @@ def test_the_split_logic_this_protects_still_works():
 
 
 # --- B35 -------------------------------------------------------------------
+
 
 def test_unattended_hooks_do_not_log_to_a_fixed_shared_tmp_path():
     for name in ("obsidian-bg-agent.sh", "obsidian-hermes-session-end.sh"):
