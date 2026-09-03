@@ -75,6 +75,23 @@ log_run() {
     || printf '{"run_id":"%s","status":"_log_run_error","for":"%s"}\n' "$RUN_ID" "$status" >> "$file"
 }
 
+# --- Third gate: the OWASP ten-check pipeline (fork ADR 0001 section 5) ------
+# The agent no longer writes the vault. It writes CANDIDATES into a staging
+# root, and scripts/promote_candidates.py commits only those that pass all ten
+# checks; the rest land in <derived>/_review/ for a human. Both the staging
+# root and the derived root are therefore REQUIRED -- without them there is
+# nowhere safe to write, so the hook stays inert rather than falling back to
+# the vault (fail-closed; the fallback IS the vulnerability).
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROMOTER="$SCRIPT_DIR/../scripts/promote_candidates.py"
+STAGING="${OBSIDIAN_STAGING_ROOT:-}"
+if [[ -z "$STAGING" || -z "${DERIVED_VAULT_ROOT:-}" || ! -f "$PROMOTER" ]]; then
+  log_run "pipeline_unconfigured" staging "${STAGING:-unset}" \
+    derived "${DERIVED_VAULT_ROOT:-unset}" promoter "$PROMOTER"
+  exit 0
+fi
+mkdir -p "$STAGING" || { log_run "staging_unwritable"; exit 0; }
+
 # --- Burst-dedup lock --------------------------------------------------------
 # Two sessions compacting within seconds of each other fire two hooks at the
 # same vault. A short-TTL lock drops the second. The trap releases on hook exit,
@@ -108,6 +125,9 @@ if [[ -z "$SUMMARY" ]]; then
 fi
 
 TODAY=$(date +%Y-%m-%d)
+# LLM04 (supply chain): candidates must pin the generator to a commit, so the
+# gate can refuse a note whose producer is unidentifiable.
+FORK_COMMIT="$(git -C "$SCRIPT_DIR/.." rev-parse --short HEAD 2>/dev/null || echo unknown)"
 
 # Optional: pull project-specific propagation rules from the compacting
 # project's CLAUDE.md. Marker-based extraction so the agent ingests only the
@@ -133,9 +153,31 @@ PROMPT_FILE=$(mktemp "${TMPDIR:-/tmp}/obsidian-bg-XXXXXX.txt")
 
 cat > "$PROMPT_FILE" << HEADER
 You are an autonomous Obsidian vault agent. The Claude session was just compacted.
-Propagate everything worth preserving from the summary to the vault. Run silently.
+Propagate everything worth preserving from the summary. Run silently.
 
-VAULT: $VAULT
+YOU CANNOT WRITE THE VAULT. Your cwd is a STAGING directory and the vault is not
+reachable from it. Everything you write is a CANDIDATE that a fail-closed gate
+(the OWASP GenAI LLM Top-10 pipeline) checks before anything reaches the vault.
+A candidate that fails any check is quarantined for a human, not committed.
+
+For EVERY note you propose, write TWO files into the staging directory:
+  1. <name>.md                  -- the note body, with this frontmatter:
+       layer: L2
+       generated-by: second-brain-fork@\$FORK_COMMIT
+       generated-at: <ISO-8601 UTC>
+       source-refs: ["<vault-relative path>", ...]   # must resolve to real notes
+  2. <name>.md.candidate.json   -- {"target": "<vault-relative path>",
+       "provenance": {"generated-by": "...", "source-refs": [...]}}
+
+A note without its sidecar is quarantined as an untargeted write. A note whose
+source-refs do not resolve is quarantined. To add links to an EXISTING
+hand-authored note, reproduce that note verbatim and change ONLY the bytes
+between the <!-- L2:links start --> / <!-- L2:links end --> markers; any change
+to prose outside the fence is quarantined.
+
+STAGING (your cwd): $STAGING
+VAULT (read-only reference, not writable): $VAULT
+FORK_COMMIT: $FORK_COMMIT
 TODAY: $TODAY
 
 SESSION SUMMARY:
@@ -219,7 +261,10 @@ log_run "starting" summary_chars "${#SUMMARY}" hints_chars "${#PROJECT_HINTS}"
 # Telegram/Slack integration) alongside Claude Code, this background run can
 # seize the bot's single MCP session and disrupt the live poller.
 (
-  cd "$VAULT" || exit 1
+  # cwd is the STAGING root, not the vault: the vault is not reachable from
+  # here, so a prompt-injected "write to the vault" instruction has nothing to
+  # write to. This is the boundary that replaces trusting the prompt.
+  cd "$STAGING" || exit 1
   # --allowedTools enforces the CONSTRAINTS block the prompt already states.
   # The compaction summary can carry text that originated from the open web
   # (a page read by /research, a transcript, a cloned repo's README), so the
@@ -230,7 +275,13 @@ log_run "starting" summary_chars "${#SUMMARY}" hints_chars "${#PROJECT_HINTS}"
     -p < "$PROMPT_FILE" >> "$BG_LOG" 2>&1
   EXIT_CODE=$?
   rm -f "$PROMPT_FILE"
-  log_run "completed" duration_sec "$(( $(date +%s) - START_TIME ))" exit_code "$EXIT_CODE"
+  # Every candidate now runs the ten-check gate. The promoter is the only path
+  # from staging into the vault; its exit code is recorded so a refused
+  # promotion (gate and guard disagreeing) is never silent.
+  python3 "$PROMOTER" --staging "$STAGING" >> "$BG_LOG" 2>&1
+  GATE_EXIT=$?
+  log_run "completed" duration_sec "$(( $(date +%s) - START_TIME ))" \
+    exit_code "$EXIT_CODE" gate_exit "$GATE_EXIT"
 ) &
 
 exit 0

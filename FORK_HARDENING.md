@@ -72,11 +72,23 @@ Each pin FAILS on upstream v0.14.0 by construction and must stay green here:
 
 ## Sequence (ADR 0001; each its own reviewed PR)
 
-1. **This branch** - strip + pins.
-2. Enforce layer: `DERIVED_VAULT_ROOT` write-root confinement, fence-diff guard,
-   OS read-only backstop on SSOT, `layer:` linter, CI egress test.
-3. OWASP GenAI LLM Top-10 pipeline (build prerequisite for any autonomous write).
-4. Bedrock + pgvector re-route (embeddings, triage LLM, enrichment).
+1. **DONE** (#1) - strip + pins.
+2. **DONE** (#2) - enforce layer: `DERIVED_VAULT_ROOT` write-root confinement,
+   fence-diff guard, `layer:` linter. (The OS read-only backstop stays a
+   deployment step, not code.)
+3. **DONE** - OWASP GenAI LLM Top-10 pipeline: `scripts/owasp_pipeline.py` +
+   `scripts/promote_candidates.py`, with the writer rewired to staging.
+   **Seven checks are live and deterministic** (LLM02/03/04/05/06/09/10, plus a
+   deterministic LLM01 prefilter and the LLM08 marker scan). **The three
+   LLM-backed checks (LLM01 span classification, LLM07 claim strength, LLM08
+   semantic leaks) report UNAVAILABLE, which the gate treats as a FAILURE** --
+   so the autonomous write path is still closed, exactly as ADR 0001 intends:
+   the pipeline is a prerequisite, and "cannot check" may never read as "pass".
+4. **NEXT** - Bedrock + pgvector re-route. This is what opens the write path:
+   `_bedrock_available()` in `owasp_pipeline.py` is the single switch and
+   `check_llm_backed()` is the function to implement (Haiku per ADR 0001
+   section 2 model tiering). Also replaces the `triage_links` stub and the
+   local-only embed path.
 
 ## Re-audit tax
 

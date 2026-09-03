@@ -36,6 +36,17 @@ def _run_hook(stdin: str, env_extra: dict, tmp_path: Path) -> subprocess.Complet
     env = {**os.environ, "PATH": f"{stub_dir}:{os.environ['PATH']}", **env_extra}
     env.pop("OBSIDIAN_VAULT_PATH", None)
     env.pop("OBSIDIAN_BG_AGENT_ENABLED", None)
+    # The agent writes CANDIDATES into a staging root and the OWASP gate
+    # (scripts/promote_candidates.py) is the only path into the vault, so both
+    # roots are required for the hook to do anything. Defaults here keep these
+    # tests exercising the CONFIGURED path; test_inert_without_pipeline_config
+    # pins the unconfigured one.
+    staging = tmp_path / "staging"
+    derived = tmp_path / "derived"
+    staging.mkdir(exist_ok=True)
+    derived.mkdir(exist_ok=True)
+    env.setdefault("OBSIDIAN_STAGING_ROOT", str(staging))
+    env.setdefault("DERIVED_VAULT_ROOT", str(derived))
     env.update(env_extra)
     return subprocess.run(["bash", str(HOOK)], input=stdin, env=env,
                           capture_output=True, text=True, timeout=30)
@@ -82,7 +93,13 @@ def test_full_chain_spawns_agent_with_summary(tmp_path):
             break
         time.sleep(0.1)
     body = record.read_text(encoding="utf-8")
-    assert f"CWD={vault}" in body, "agent must run inside the vault"
+    # INVERTED DELIBERATELY (fork ADR 0001 section 5): the agent used to run
+    # inside the vault. It now runs inside the STAGING root and the vault is
+    # not reachable from its cwd, so an injected "write to the vault"
+    # instruction has nothing to write to. Asserting the negative too, because
+    # this is the boundary the whole gate rests on.
+    assert f"CWD={tmp_path / 'staging'}" in body, "agent must run inside staging"
+    assert f"CWD={vault}\n" not in body, "agent regained a vault-rooted cwd"
     assert "ARG=--dangerously-skip-permissions" in body
     assert "SUMMARY-SENTINEL" in body, "the compact summary must reach the prompt"
     assert "met a new person" in body, "multi-line summaries must survive the base64 hop"
@@ -215,3 +232,31 @@ def test_launch_uses_strict_mcp_config(tmp_path):
         time.sleep(0.1)
     body = record.read_text(encoding="utf-8")
     assert "ARG=--strict-mcp-config" in body, "headless run must enforce filesystem-only MCP"
+
+
+def test_inert_without_pipeline_config(tmp_path):
+    """No staging/derived root -> the agent must NOT run, and must say so.
+
+    Wrong behaviour this catches: falling back to a direct vault write when the
+    OWASP gate is unconfigured (the fallback IS the vulnerability), and the
+    silent early exit this file's run-log exists to prevent.
+    """
+    vault = tmp_path / "vault"
+    vault.mkdir()
+    transcript = tmp_path / "transcript.jsonl"
+    transcript.write_text(
+        json.dumps({"isCompactSummary": True, "message": {"content": "x"}}) + "\n",
+        encoding="utf-8",
+    )
+    env = {
+        "OBSIDIAN_VAULT_PATH": str(vault),
+        "OBSIDIAN_BG_AGENT_ENABLED": "1",
+        "OBSIDIAN_STAGING_ROOT": "",
+        "DERIVED_VAULT_ROOT": "",
+    }
+    r = _run_hook(json.dumps({"transcript_path": str(transcript)}), env, tmp_path)
+    assert r.returncode == 0
+    assert not (tmp_path / "claude-invocation.txt").exists()
+    logs = list((vault / ".claude-runs").glob("*.jsonl"))
+    assert logs, "the early exit was silent"
+    assert "pipeline_unconfigured" in logs[0].read_text(encoding="utf-8")
