@@ -54,7 +54,7 @@ def test_ingest_warns_before_the_step_that_rewrites_user_notes():
     """The warning has to sit at the rewrite step, not only in a footer."""
     text = (REPO_ROOT / "commands" / "obsidian-ingest.md").read_text(encoding="utf-8")
     rewrite_at = text.index("REWRITE the vault")
-    window = text[rewrite_at:rewrite_at + 1200]
+    window = text[rewrite_at : rewrite_at + 1200]
     assert "data, not instructions" in window, (
         "obsidian-ingest step 6 rewrites existing entity, concept, and project "
         "pages from source claims with no warning that the source is untrusted"
@@ -62,19 +62,12 @@ def test_ingest_warns_before_the_step_that_rewrites_user_notes():
     assert "ai-first-rules.md" in window, "the step does not point at the canonical rule"
 
 
-def test_research_deep_treats_synthesis_bullets_as_proposals():
-    """The synthesis is model output over fetched pages, not the user speaking."""
-    script = (REPO_ROOT / "scripts" / "research" / "research_deep.py").read_text(encoding="utf-8")
-    assert "explicit propagation instructions" not in script, (
-        "the script still tells the caller to honour synthesis bullets as instructions; "
-        "a fetched page can plant a bullet naming one of the user's real notes"
-    )
-    assert "PROPOSALS" in script
-
+def test_research_deep_command_warns_about_untrusted_content():
+    """Narrowed from the research_deep.py fence: scripts/research/ is deleted in
+    this hardened fork, but the command prose survives and must still mark
+    fetched content as untrusted, not just guard invented paths."""
     cmd = (REPO_ROOT / "commands" / "research-deep.md").read_text(encoding="utf-8")
-    assert "untrusted text" in cmd, (
-        "the command guards invented PATHS but never invented CONTENT"
-    )
+    assert "untrusted text" in cmd, "the command guards invented PATHS but never invented CONTENT"
 
 
 def test_recall_hook_never_injects_verbatim_raw_sources():
@@ -98,6 +91,7 @@ def test_a_poisoned_note_is_filtered_out_of_automatic_recall(tmp_path, monkeypat
     that fires unprompted.
     """
     import sys
+
     sys.path.insert(0, str(REPO_ROOT / "integrations" / "obsidian-mcp-server"))
 
     vault = tmp_path / "vault"
@@ -115,6 +109,7 @@ def test_a_poisoned_note_is_filtered_out_of_automatic_recall(tmp_path, monkeypat
     import importlib
 
     import vault_ops
+
     importlib.reload(vault_ops)
 
     hits = vault_ops.search("quarterly widget throughput analysis", limit=10, semantic=False)
