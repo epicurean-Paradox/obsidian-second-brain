@@ -399,10 +399,25 @@ def _embed_query(text: str, model: Optional[str] = None) -> Optional[List[float]
     back to lexical. Supports Ollama (default) and OpenAI-compatible endpoints.
     model: pass the INDEX's model so query and note vectors share one space."""
     model = model or _EMBED_MODEL
-    # gate-hardening: the remote "openai" embed backend is STRIPPED (fork ADR
-    # 0001 section 2 -- embeddings move to Bedrock + pgvector in the re-route
-    # PR). Until then only a local runtime is accepted, and never a non-local
-    # URL: semantic search falls back to lexical rather than egress.
+    # Two backends, both non-vendor (fork ADR 0001 s2): Bedrock, or a LOCAL
+    # runtime. The remote "openai" backend is stripped. Bedrock is preferred
+    # when configured; the local path additionally refuses any non-localhost
+    # URL, so a misconfigured OBSIDIAN_EMBED_URL degrades semantic search to
+    # lexical instead of egressing.
+    if _EMBED_BACKEND == "bedrock":
+        from bedrock_provider import BedrockUnavailable
+        from bedrock_provider import embed as _bedrock_embed
+
+        try:
+            return _bedrock_embed(text[:1200])
+        except BedrockUnavailable as exc:
+            # Search must stay snappy and must never egress elsewhere: fall
+            # back to lexical rather than to another provider.
+            # This module reports to stderr (no logging config of its own --
+            # it runs inside the MCP server process); matching that convention.
+            print(f"vault_ops: Bedrock embed unavailable, using lexical: {exc}",
+                  file=sys.stderr)
+            return None
     if _EMBED_BACKEND != "ollama":
         return None
     host = urllib.parse.urlsplit(_EMBED_URL).hostname or ""

@@ -39,15 +39,26 @@ Reply as: WORD - up to 6 word reason"""
 
 
 def ask_claude(note, line, link, key):
-    # gate-hardening: the upstream implementation POSTed the prompt to the
-    # direct vendor API (api.anthropic.com) under a personal key. This fork's
-    # egress policy is Bedrock-only (fork ADR 0001 section 2); the Bedrock
-    # provider lands in the re-route PR. Until then the LLM triage path is
-    # UNAVAILABLE -- fail hard rather than silently degrade or leak egress.
-    raise NotImplementedError(
-        "LLM link triage is disabled in the hardened fork: direct vendor API "
-        "egress is stripped; the Bedrock provider is pending (fork ADR 0001)."
-    )
+    # Bedrock only (fork ADR 0001 s2). The upstream implementation POSTed this
+    # prompt to api.anthropic.com under a personal key; that path is stripped.
+    # `key` is accepted for signature compatibility and deliberately unused --
+    # there is no API key in this fork's egress model.
+    from bedrock_provider import BedrockUnavailable, invoke_text
+
+    try:
+        text = invoke_text(
+            PROMPT.format(note=note, line=line[:300], link=link),
+            guard_tier=True,
+            max_tokens=40,
+        ).strip()
+    except BedrockUnavailable as exc:
+        # Fail loud: a link-triage verdict that silently defaults to KEEP would
+        # quietly retain broken links forever.
+        raise RuntimeError(f"link triage unavailable: {exc}") from exc
+    verdict = text.split()[0].upper().strip(":-") if text.split() else "KEEP"
+    if verdict not in {"KEEP", "CREATE", "DELETE"}:
+        verdict = "KEEP"
+    return verdict, text
 
 
 def line_for(vault, rel, link):
