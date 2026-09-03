@@ -36,10 +36,6 @@ jobs:
       # inside code fences / backtick spans are preserved and never fail.
       - name: Lint substitution characters
         run: python scripts/sweep_non_ascii.py --check
-      # longer matches a real build, so the published table cannot go stale and
-      # a regression on a platform the maintainer does not personally use
-      # cannot pass unnoticed. Regenerate with:
-
       # docs/ is generated from commands/, so a command whose description or
       # triggers changed without a site rebuild would ship a page that
       # contradicts the command it documents. Regenerate with:
