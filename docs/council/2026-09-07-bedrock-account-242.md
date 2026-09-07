@@ -524,3 +524,24 @@ the paced loop; unit tests with a stub client do not prove fail-closed against a
 parallel, read-only over the fork checkout and the platform's IAM module. The author merged verdicts verbatim and did
 not edit any lens text; the absorbed and owed items are enumerated above so the diff between what was reviewed and what
 ships is auditable.
+
+## Addendum (2026-09-07, after the operator's decision window) -- dissent premise corrected
+
+The security and cost lenses argued that account 195 (johan_dev) was the safer blast
+radius because this fork is "a personal second brain". The operator corrected the
+premise when the dissent was surfaced: in Datamaran, second brains are **copperminds**
+-- highly specialized agentic clusters that maintain their own Body of Knowledge (BOK)
+and serve interfaces for other clusters. A BOK is a topographic, layered structure of
+knowledge (the lower the layer, the more deterministic the consulted information);
+copperminds map it in Obsidian graphs and adjust nodes and vertices while learning, and
+constraints stop them from modifying layer-1 elements beyond the vertices' CRUDs. A
+layer-1 note always refers to its sources, and the sources are deterministic, handled
+outside in their own SSOT systems (the sources governed via Throughline).
+
+Consequence: the fork is Datamaran platform infrastructure, not a personal tool, so the
+242 (datamaran_poc) decision stands and the dissent is refuted on its premise rather
+than overruled. The blocking conditions in the synthesis are unchanged; they gate
+arming regardless of which account the dissent preferred. Cost attribution to the
+`second-brain` bucket remains a condition because it is what makes a coppermind's
+Bedrock spend legible next to Throughline's, not because the account was in doubt.
+
