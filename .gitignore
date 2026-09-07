@@ -41,3 +41,8 @@ pnpm-lock.yaml
 # Per-vault retrieval eval cases (contain private note paths; generate locally)
 scripts/eval/retrieval_cases*.jsonl
 scripts/eval/behavior_cases.jsonl
+
+# Terraform state of the fork-owned IAM root (docs/council/2026-09-07-bedrock-account-242.md):
+# local, never committed; back it up as a 1Password attachment.
+*.tfstate*
+.terraform/

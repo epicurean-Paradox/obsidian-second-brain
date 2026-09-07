@@ -126,3 +126,69 @@ def test_embed_backend_is_local_only():
     )
     assert '_EMBED_BACKEND != "ollama"' in src, "remote embed backend guard missing"
     assert "127.0.0.1" in src and "localhost" in src, "localhost pin missing"
+
+
+def _tracked_text_files():
+    """Every git-tracked file that decodes as UTF-8 text (docs, scripts, configs)."""
+    out = subprocess.run(
+        ["git", "ls-files"], cwd=REPO, capture_output=True, text=True, check=True
+    ).stdout.split()
+    files = []
+    for rel in out:
+        path = REPO / rel
+        if not path.is_file() or path.suffix in {".png", ".jpg", ".jpeg", ".gif", ".pdf", ".ico", ".woff", ".woff2"}:
+            continue
+        files.append(path)
+    return files
+
+
+# --- Pins 7 and 8: council 2026-09-07 (docs/council/2026-09-07-bedrock-account-242.md) ---
+
+_HOOK = REPO / "hooks" / "obsidian-bg-agent.sh"
+_ALLOWED_TOOLS = '--allowedTools "Read,Write,Edit,Glob,Grep"'
+_ARMING_VARS = ("OBSIDIAN_BG_AGENT_ENABLED",)
+_GLOBAL_SETTINGS = "~/.claude/settings.json"
+
+
+def test_headless_writer_tool_surface_is_pinned():
+    """Pin 7. The headless `claude -p` call must keep `--strict-mcp-config` and exactly the
+    filesystem-only tool list. Fails if Bash (or anything else) is added to --allowedTools,
+    if the list is dropped, or if MCP loading is re-enabled: that flag is the boundary between
+    model output as inert data and model output that can act."""
+    src = _HOOK.read_text(encoding="utf-8")
+    invocation = [l for l in src.splitlines() if "claude " in l and "-p" in l or "--allowedTools" in l]
+    assert any("--strict-mcp-config" in l for l in src.splitlines() if l.lstrip().startswith("claude ")), (
+        "headless claude invocation lost --strict-mcp-config"
+    )
+    assert _ALLOWED_TOOLS in src, f"headless claude invocation lost {_ALLOWED_TOOLS}"
+    for line in invocation:
+        if "--allowedTools" in line:
+            assert "Bash" not in line and "WebFetch" not in line and "mcp__" not in line, line
+
+
+def test_no_committed_file_arms_bg_agent_via_global_settings():
+    """Pin 8. The arming flag belongs in the vault project's own .claude/settings.json.
+    Any committed text (outside this test) that names the user-global settings file within
+    three lines of OBSIDIAN_BG_AGENT_ENABLED fails: PostCompact fires on every session's
+    compaction, so a globally set flag feeds unrelated projects' summaries to the writer.
+    The vault PATH alone arms nothing, so per-project vault-path docs are not in scope;
+    docs/council/ records are excluded because they quote the anti-pattern as evidence."""
+    offenders: list[str] = []
+    for f in _tracked_text_files():
+        if f.resolve() == Path(__file__).resolve():
+            continue
+        # Council records quote the anti-pattern verbatim as evidence; they are the
+        # reason this pin exists, not an install instruction.
+        if "docs/council/" in f.relative_to(REPO).as_posix():
+            continue
+        try:
+            lines = f.read_text(encoding="utf-8").splitlines()
+        except UnicodeDecodeError:
+            continue
+        for i, line in enumerate(lines):
+            if _GLOBAL_SETTINGS not in line:
+                continue
+            window = " ".join(lines[max(0, i - 3): i + 4])
+            if any(v in window for v in _ARMING_VARS):
+                offenders.append(f"{f.relative_to(REPO)}:{i + 1}")
+    assert not offenders, "global settings named next to an arming variable: " + ", ".join(offenders)

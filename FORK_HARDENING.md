@@ -55,6 +55,15 @@ Manual, reviewed, no script:
    agent config yourself, after reading each one.
 3. Set `OBSIDIAN_VAULT_PATH` yourself. Nothing here writes `~/.claude/*` or any other
    agent's config, ever.
+4. Bedrock (AWS account 242201275909, eu-west-1; council
+   `docs/council/2026-09-07-bedrock-account-242.md`): assume the fork's scoped IAM role
+   through a named profile (`obsidian-bedrock`; role created by the fork-owned Terraform
+   root, never the account-admin profile); source the five non-secret `OBSIDIAN_BEDROCK_*`
+   / `AWS_REGION` values from `config/bedrock.eu-west-1.yaml` via a `.envrc` in the vault
+   directory; put `OBSIDIAN_VAULT_PATH` and `OBSIDIAN_BG_AGENT_ENABLED` ONLY in the vault
+   project's `.claude/settings.json` (project-scoped), never the user-global file; run the
+   verification checklist in that council record before arming. Until every blocking
+   condition there is read back, `OBSIDIAN_BG_AGENT_ENABLED` stays unset.
 
 ## Red-first pins (merge gates - see `tests/test_gate_hardening.py`)
 
@@ -69,6 +78,14 @@ Each pin FAILS on upstream v0.14.0 by construction and must stay green here:
    `generativelanguage.googleapis`); local embed URL pinned to localhost.
 5. `triage_links.ask_claude` raises (no silent LLM path).
 6. `hooks/obsidian-bg-agent.sh` still present (kept-and-scoped, not lost in the strip).
+7. The headless writer's tool surface is pinned: `hooks/obsidian-bg-agent.sh` invokes `claude`
+   with `--strict-mcp-config` and exactly `--allowedTools "Read,Write,Edit,Glob,Grep"` (no
+   Bash, no network, no MCP). This flag is the boundary between model output as inert data
+   and model output that can act (council 2026-09-07, security C4).
+8. No committed file arms the bg-agent through the user-global Claude settings file: any
+   mention of that file's path within three lines of the enable flag fails (the vault path
+   alone arms nothing). PostCompact fires on every session's compaction, so a globally set
+   flag feeds unrelated projects' summaries to this writer (council 2026-09-07, C1b).
 
 ## Sequence (ADR 0001; each its own reviewed PR)
 
@@ -96,6 +113,25 @@ Each pin FAILS on upstream v0.14.0 by construction and must stay green here:
    `youtube-transcript-api` and `feedparser` for the deleted research/eval
    stack, so installing a "Bedrock-only" fork still pulled every vendor client
    it exists to avoid.
+   **Account decision 2026-09-07 (operator, decision window): AWS 242201275909 / eu-west-1**,
+   over 195; four-lens council `docs/council/2026-09-07-bedrock-account-242.md` (4x
+   PASS-WITH-CONDITIONS; security and cost lenses dissent that 195 was safer). Model ids:
+   generation `eu.anthropic.claude-sonnet-5`, guard `anthropic.claude-haiku-4-5-20251001-v1:0`,
+   embeddings `amazon.titan-embed-text-v2:0`. Bedrock invocation logging in 242/eu-west-1
+   read OFF the same day; leave it off for this workload. **Blocking before arming** (owed,
+   each its own PR): scoped IAM role via a fork-owned Terraform root (local state); boto3
+   `Config` timeouts + adaptive retries and a paced guard loop; promoted/quarantined counts in
+   the `.claude-runs` JSONL; `dimensions` pinned in `embed()`; per-day iteration cap +
+   escalation; AWS Budgets alarm (~$250/mo) and a `second-brain` bucket in the operator's
+   242 billing report; a written answer to whether the headless `claude -p` generation is
+   Bedrock-routed at all (`CLAUDE_CODE_USE_BEDROCK` is set nowhere here; if not, only the
+   guard checks and embeddings land on the 242 bill). Bedrock write-path OPEN iff ALL hold:
+   (1) `sts get-caller-identity` under the scoped role shows the role ARN, not the admin;
+   (2) every model/profile id resolves via `get-foundation-model` / `get-inference-profile`;
+   (3) one fixture Haiku guard call returns a parseable verdict (run twice: marketplace
+   auto-subscribe); (4) `available(embeddings=True, guard=True)` is True; (5) a
+   `promote_candidates.py --dry-run` over one hand-authored candidate quarantines or
+   would-promote for the right reason. Date, role name and config commit go here when done.
 5. **REMAINING** - pgvector store for the embedding index (ADR 0001 section 2:
    pgvector on an existing operator-managed RDS). Needs a real database plus a
    migration, so it is deliberately its own change; embeddings currently

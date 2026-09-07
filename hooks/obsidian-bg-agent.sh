@@ -14,8 +14,12 @@
 # normal install. See hooks/postcompact.hook.example.json for the opt-in steps.
 #
 # Setup:
-#   1. Set OBSIDIAN_VAULT_PATH in the env section of ~/.claude/settings.json
-#   2. Set OBSIDIAN_BG_AGENT_ENABLED=1 in the same env section to enable
+#   1. Set OBSIDIAN_VAULT_PATH in the env section of the VAULT PROJECT's own
+#      .claude/settings.json (project-scoped), never the user-global settings
+#      file: PostCompact fires on every session's compaction, so a global
+#      arming flag would feed unrelated projects' summaries to this writer
+#      (council 2026-09-07, docs/council/2026-09-07-bedrock-account-242.md).
+#   2. Set OBSIDIAN_BG_AGENT_ENABLED=1 in that same project-scoped env section
 #   3. Register this script as a PostCompact hook (see postcompact.hook.example.json)
 #   4. Make executable: chmod +x hooks/obsidian-bg-agent.sh
 # To disable again: clear OBSIDIAN_BG_AGENT_ENABLED (the gate below makes that enough).
