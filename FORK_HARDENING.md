@@ -3,6 +3,14 @@
 **Upstream:** eugeniughelbur/obsidian-second-brain, pinned at v0.14.0 (commit b8c52f8).
 **Governing decision:** claude-code-mastery ADR 0001 (layered knowledge base on a
 hardened second-brain fork) - this branch (`gate-hardening`) is its §3.
+**Datamaran binding:** this fork is the first **coppermind** build. Datamaran's
+ADR-0032 (`datamaraneers/npm-dashboard` `docs/adr/0032-copperminds-layered-bok.md`,
+operator directive 2026-09-07) defines copperminds as specialized agentic clusters over
+a layered Body of Knowledge: L0 = the Throughline-governed sources (read-only), L1 =
+source-referencing notes with agent writes limited to CRUD on edges (Obsidian links),
+L2+ = learned knowledge. The edge-CRUD constraint on L1 is an owed enforce-layer pin
+here (see the arming conditions in `docs/council/2026-09-07-bedrock-account-242.md`).
+It is not a personal tool; the council addendum of 2026-09-07 records that correction.
 **Model:** the Graft `gate-hardening` precedent - strip (delete, not disable),
 red-first pins as merge gates, source-reviewed manual install.
 
