@@ -171,10 +171,15 @@ def test_no_committed_file_arms_bg_agent_via_global_settings():
     Any committed text (outside this test) that names the user-global settings file within
     three lines of OBSIDIAN_BG_AGENT_ENABLED fails: PostCompact fires on every session's
     compaction, so a globally set flag feeds unrelated projects' summaries to the writer.
-    The vault PATH alone arms nothing, so per-project vault-path docs are not in scope."""
+    The vault PATH alone arms nothing, so per-project vault-path docs are not in scope;
+    docs/council/ records are excluded because they quote the anti-pattern as evidence."""
     offenders: list[str] = []
     for f in _tracked_text_files():
         if f.resolve() == Path(__file__).resolve():
+            continue
+        # Council records quote the anti-pattern verbatim as evidence; they are the
+        # reason this pin exists, not an install instruction.
+        if "docs/council/" in f.relative_to(REPO).as_posix():
             continue
         try:
             lines = f.read_text(encoding="utf-8").splitlines()
