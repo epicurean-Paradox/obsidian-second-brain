@@ -136,7 +136,7 @@ bash scripts/build.sh --platform agent-skills
 npx skills add ./dist/agent-skills -a codex -a opencode -a antigravity   # or cp -R dist/agent-skills/skills/. <vault>/.agents/skills/
 ```
 
-One spec-compliant .agents/skills tree serves all four harnesses. To update a copied build later: `bash scripts/update-vault-integration.sh --vault /path/to/vault` (guarded: fast-forward pull, smoke-test gate, backup + rollback).
+One spec-compliant .agents/skills tree serves all four harnesses.
 
 ### Gemini CLI (classic)
 
