@@ -84,7 +84,9 @@ def test_the_split_logic_this_protects_still_works():
 
 
 def test_unattended_hooks_do_not_log_to_a_fixed_shared_tmp_path():
-    for name in ("obsidian-bg-agent.sh", "obsidian-hermes-session-end.sh"):
+    # obsidian-hermes-session-end.sh was the second name here until the Hermes
+    # session-end writer was stripped for bypassing the OWASP staging gate.
+    for name in ("obsidian-bg-agent.sh",):
         src = (REPO_ROOT / "hooks" / name).read_text(encoding="utf-8")
         assert not re.search(r">>\s*/tmp/obsidian-[a-z-]+\.log", src), (
             f"{name} appends to a fixed name in the shared /tmp. It is world-readable "

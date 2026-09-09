@@ -30,6 +30,8 @@ per ADR 0001 §2).
 | Installers / agent-config writers | `install.sh`, `update.sh`, `scripts/quick-install.sh`, `scripts/setup.sh`, `scripts/setup_settings_hook.py`, `scripts/install-codex-wrappers.sh` |
 | Platform adapters + harness runners (write/drive other harnesses' config: `.gemini/`, `.codex/`, `~/.claude/skills` symlinks, opencode/pi/hermes/grok-bot, the Codex-CLI command runner) | `adapters/` (all), `scripts/build.sh`, `scripts/run-command.sh` |
 | Unattended poller | `integrations/telegram-journal/` (launchd daemon) |
+| Second unattended writer + its harness config template (added 2026-09-09) | `hooks/obsidian-hermes-session-end.sh`, `hooks/hermes-hooks.config.example.yaml` |
+| Dead build system left reachable (added 2026-09-09) | `scripts/update-vault-integration.sh`, `scripts/lib.sh` |
 | Direct third-party research egress (web search, LLM ladders, media/Whisper) | `scripts/research/` |
 | Remote-embed + LLM eval harness (OpenAI-compatible endpoints, OPENAI_API_KEY judge) | `scripts/eval/` |
 | Tests of the above | pruned; every kept test exercises kept code |
@@ -94,6 +96,42 @@ Each pin FAILS on upstream v0.14.0 by construction and must stay green here:
    mention of that file's path within three lines of the enable flag fails (the vault path
    alone arms nothing). PostCompact fires on every session's compaction, so a globally set
    flag feeds unrelated projects' summaries to this writer (council 2026-09-07, C1b).
+
+9. No unattended writer bypasses the OWASP staging gate: any executable that
+   invokes a headless agent runner (`hermes -z|run|cron`, `opencode run`,
+   `codex exec`, `gemini -p`, `pi run`, `claude -p|--print`) must reference BOTH
+   `OBSIDIAN_STAGING_ROOT` and `promote_candidates`. Generalised on purpose, so it
+   catches the next harness rather than only Hermes.
+10. No non-Claude harness hook artifacts exist (the Hermes session-end writer, its
+   config templates, the vault-integration updater).
+11. No non-test executable reaches for the stripped build system (`adapters/`,
+   `scripts/build.sh`, `scripts/lib.sh`).
+
+### Why 9-11 exist (2026-09-09)
+
+PR #1 stripped `adapters/` and the Codex runner, but two Hermes artifacts survived
+in `hooks/`, and nothing pinned them. `hooks/obsidian-hermes-session-end.sh` drove
+`hermes -z` against `$OBSIDIAN_VAULT_PATH` **directly** on `on_session_end`: no
+staging root, no promoter, no `vault_guard`, and no `--allowedTools` equivalent. Its
+only constraint on what the model could write to the vault was a sentence inside its
+own prompt -- "Add/update/link only - never delete, archive, or merge" -- which is a
+request to a model, not a gate. One flag (`OBSIDIAN_HERMES_HOOK_ENABLED=1`) armed it.
+
+So the step-3 conclusion in this file ("the bg-agent CANNOT reach the vault; the
+promoter is the only path in") was true of the Claude writer and false of the repo:
+a sibling writer reached the vault with the ten-check pipeline standing beside it,
+unused. Pin 7 pinned the Claude writer's tool surface; nothing pinned the existence
+of a second writer. Pin 9 is written against the *class* for that reason.
+
+Its companion template also told the reader to install the script into
+`~/.hermes/agent-hooks/` -- another agent's config directory, the strip class from
+PR #1's first row.
+
+`scripts/update-vault-integration.sh` went with them: it gated on
+`adapters/$PLATFORM/adapter.sh` and shelled out to `scripts/build.sh`, both deleted
+in PR #1, so it could only ever die at its own guard -- while `llms.txt` still told
+people to run it as the way to update an install. `scripts/lib.sh` was sourced by
+that same deleted build script and by nothing else.
 
 ## Sequence (ADR 0001; each its own reviewed PR)
 

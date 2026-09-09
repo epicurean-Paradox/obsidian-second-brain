@@ -37,6 +37,38 @@ AGENT_CONFIG_WRITES = re.compile(
     r"(~|\$HOME)/\.claude/(settings\.json|skills|commands)|\.gemini/|\.codex/"
 )
 
+# A headless agent invocation is the moment model output stops being data and
+# starts being able to write. Every one of these has to sit behind the OWASP
+# staging gate, whichever harness it drives.
+HEADLESS_AGENT_RUNNER = re.compile(
+    # Named harnesses, matched INVOCATION-shaped (binary + subcommand/flag).
+    # Deliberately not the bare binary name: `.opencode` and `.hermes` appear in
+    # the vault-scanner exclusion lists (vault_ops.py, vault_scan.py), which is a
+    # directory to skip, not a command to run. A pin that fires on those gets
+    # muted, and a muted pin guards nothing.
+    r"\bhermes\s+\S"
+    r"|\bopencode\s+run\b"
+    r"|\bcodex\s+exec\b"
+    r"|\bgemini\s+(-p|--prompt)\b"
+    r"|\bpi\s+run\b"
+    # Claude's own headless mode.
+    r"|\bclaude\s+(-p|--print)\b"
+    # Indirection: the stripped Hermes hook ran `$CONSOLIDATE_CMD "$PROMPT"`, so
+    # the binary name never appeared on the invoking line. Catch the shape.
+    r"|\$\{?[A-Z_]*(CMD|COMMAND|RUNNER)[A-Z_]*\}?\s+\"?\$"
+)
+
+# LIMITATION, stated rather than implied: this is a grep over source text, not a
+# taint analysis. It catches the harnesses named above and the common
+# variable-indirection shape; it does not catch an unnamed future binary, or a
+# command assembled from pieces at runtime. It raises the cost of adding a second
+# ungated writer and does not make it impossible -- the review is still owed on
+# every upstream pull (see "Re-audit tax").
+
+# The build system PR #1 deleted. An executable still reaching for it is dead
+# code that reads as live, and it is dead code shaped like the strip class.
+STRIPPED_BUILD_SYSTEM = re.compile(r"adapters/|scripts/build\.sh|scripts/lib\.sh")
+
 
 def _tracked_executable_files():
     out = subprocess.run(
@@ -192,3 +224,82 @@ def test_no_committed_file_arms_bg_agent_via_global_settings():
             if any(v in window for v in _ARMING_VARS):
                 offenders.append(f"{f.relative_to(REPO)}:{i + 1}")
     assert not offenders, "global settings named next to an arming variable: " + ", ".join(offenders)
+
+
+# --- Pins 9-11: no second unattended writer, whatever harness it drives ------
+
+
+def test_no_unattended_writer_bypasses_the_owasp_gate():
+    """Pin 9. The bg-agent is the ONLY unattended vault writer, and it writes to
+    staging where `promote_candidates.py` is the single path in.
+
+    Failure this closes: `hooks/obsidian-hermes-session-end.sh` drove `hermes -z`
+    against the vault directly on `on_session_end` -- no staging root, no
+    promoter, no `vault_guard`, and no tool-surface restriction. Its only
+    constraint on what the model could write was a sentence in its own prompt
+    ("add/update/link only - never delete"), which is a request, not a gate. One
+    flag (`OBSIDIAN_HERMES_HOOK_ENABLED=1`) armed it, and no pin watched that
+    flag -- exactly the single-misconfiguration shape the 2026-09-07 council
+    named as C1b for the Claude side.
+
+    Generalised deliberately: this catches the NEXT harness someone adds, not
+    just Hermes.
+    """
+    offenders = []
+    for path in _tracked_executable_files():
+        src = path.read_text(encoding="utf-8", errors="ignore")
+        if not HEADLESS_AGENT_RUNNER.search(src):
+            continue
+        gated = "OBSIDIAN_STAGING_ROOT" in src and "promote_candidates" in src
+        if not gated:
+            offenders.append(path.relative_to(REPO).as_posix())
+
+    assert not offenders, (
+        "these invoke a headless agent without routing through the OWASP staging "
+        f"gate (OBSIDIAN_STAGING_ROOT + promote_candidates): {offenders}. An "
+        "unattended writer that reaches the vault directly makes the ten-check "
+        "pipeline decorative."
+    )
+
+
+def test_no_non_claude_harness_hook_artifacts():
+    """Pin 10. The harness-runner class stays stripped on the hooks surface too.
+
+    PR #1 deleted `adapters/` (every platform adapter) and the Codex runner, but
+    left two Hermes artifacts behind in `hooks/` -- a session-end writer and a
+    paste-in config template that told the reader to install it into
+    `~/.hermes/agent-hooks/`, i.e. another agent's config directory.
+    """
+    forbidden = [
+        "hooks/obsidian-hermes-session-end.sh",
+        "hooks/hermes-hooks.config.example.yaml",
+        "hooks/hermes-hooks.cli-config.example.yaml",
+        "scripts/update-vault-integration.sh",
+    ]
+    present = [p for p in forbidden if (REPO / p).exists()]
+    assert not present, f"harness-runner artifacts are back: {present}"
+
+
+def test_no_executable_reaches_for_the_stripped_build_system():
+    """Pin 11. Dead-strip integrity.
+
+    `scripts/update-vault-integration.sh` shelled out to `scripts/build.sh` and
+    gated on `adapters/$PLATFORM/adapter.sh`, both deleted in PR #1 -- so it
+    could only ever die at its own guard, while reading like a live install path
+    (and `llms.txt` told people to run it). `scripts/lib.sh` was sourced by that
+    same deleted build script and by nothing else.
+    """
+    offenders = []
+    for path in _tracked_executable_files():
+        rel = path.relative_to(REPO).as_posix()
+        # The pins themselves name the stripped paths -- that is their job.
+        if rel.startswith("tests/"):
+            continue
+        src = path.read_text(encoding="utf-8", errors="ignore")
+        if STRIPPED_BUILD_SYSTEM.search(src):
+            offenders.append(rel)
+
+    assert not offenders, (
+        f"these reference the stripped build system: {offenders}. Dead code that "
+        "reads as a live install path is worse than no code."
+    )
